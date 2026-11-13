@@ -10,7 +10,7 @@
        stall_<摊位>.png   摊位(可加 _2 / _3 表示二、三级;加 _flip 表示朝向反了,需要水平翻转)
        cust_<名字>_front.png / cust_<名字>_back.png   顾客的正面、背面(土豪用 cust_rich_front / cust_rich_back)
        tile_street.png / tile_walk.png / tile_wood.png   可平铺的贴图(街面、摊位区地面、底部面板的木板)
-       icon_coin / icon_heart / icon_heart_empty / medal_1~3 / perk_<秘诀>   图标(美术规格 11.1)
+       icon_coin / icon_heart / icon_heart_empty / medal_1~3 / perk_<秘诀> / owner_<摊主>   图标(美术规格 11.1)
        ui_btn_red / ui_btn_green / ui_btn_paper / ui_paper / ui_wood / ui_ribbon_red|gold|gray   九宫格底图(11.2)
        gate.png 街口牌楼,share_cover.png 转发封面,app_icon.png 小游戏图标(11.3)
   2. 摊位和顾客:去掉纯色背景 → 裁掉四周空白 → 等比缩放 → 底边居中放到规定大小的透明画布上 → 压缩
@@ -40,8 +40,9 @@ KINDS = {            # 类型: (画布宽, 画布高, 四周留白)
     "icon": (128, 128, 8),
     "perk": (128, 128, 8),
     "medal": (128, 128, 8),
+    "owner": (128, 128, 8),
 }
-CENTERED = ("icon", "perk", "medal")      # 图标居中放;摊位、顾客、牌楼底边对齐
+CENTERED = ("icon", "perk", "medal", "owner")      # 图标居中放;摊位、顾客、牌楼底边对齐
 ICON_NAMES = ["icon_coin", "icon_heart", "icon_heart_empty", "medal_1", "medal_2", "medal_3"]
 UI_SIZE = {          # 九宫格底图: (宽, 高)。四角各 24 像素在游戏里保持原样,装饰只能放在角上
     "ui_btn_red": (192, 96), "ui_btn_green": (192, 96), "ui_btn_paper": (192, 96),
@@ -60,6 +61,13 @@ def stall_ids():
 def perk_ids():
     src = io.open(os.path.join(GAME, "js", "logic.js"), encoding="utf-8").read()
     body = src[src.index("export const PERKS"):]
+    return re.findall(r"\{ k: '(\w+)'", body[:body.index("];")])
+
+
+def owner_ids():
+    src = io.open(os.path.join(GAME, "js", "logic.js"), encoding="utf-8").read()
+    if "export const OWNERS" not in src: return []
+    body = src[src.index("export const OWNERS"):]
     return re.findall(r"\{ k: '(\w+)'", body[:body.index("];")])
 
 
@@ -140,7 +148,7 @@ def save_png(im, path):
 
 def main():
     os.makedirs(RAW, exist_ok=True); os.makedirs(OUT, exist_ok=True)
-    ids = stall_ids(); perks = perk_ids(); rows = []; stalls = []
+    ids = stall_ids(); perks = perk_ids(); owners = owner_ids(); rows = []; stalls = []
     files = sorted(f for f in os.listdir(RAW) if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")) and not f.startswith("_"))
     for f in files:
         stem = os.path.splitext(f)[0].lower(); flip = stem.endswith("_flip"); name = stem[:-5] if flip else stem
@@ -166,9 +174,11 @@ def main():
             size = save_png(rgba.resize((cw, ch), Image.LANCZOS), os.path.join(OUT, name + ".png"))
             rows.append((f, name + ".png", size, warns)); continue
         if kind not in KINDS:
-            rows.append((f, "跳过", 0, ["文件名开头要是 stall_、cust_、tile_、icon_、perk_、medal_、ui_、gate 之一"])); continue
+            rows.append((f, "跳过", 0, ["文件名开头要是 stall_、cust_、tile_、icon_、perk_、medal_、owner_、ui_、gate 之一"])); continue
         if kind in ("icon", "medal") and name not in ICON_NAMES:
             warns.append("不认识的图标名,可用的是:" + "、".join(ICON_NAMES))
+        if kind == "owner" and name[6:] not in owners:
+            warns.append("不认识的摊主名「%s」,可用的是:%s" % (name[6:], "、".join(owners)))
         if kind == "perk" and name[5:] not in perks:
             warns.append("不认识的秘诀名「%s」,可用的是:%s" % (name[5:], "、".join(perks)))
         if kind == "stall":
@@ -200,7 +210,7 @@ def main():
         sheet.save(os.path.join(RAW, "_检查图.png"))
 
     # 界面检查图:图标按 128 / 40 / 20 像素各放一次;底图按游戏里常见的几种尺寸拉伸(放大两倍看),检查拉长后边和角是否自然
-    icons = sorted(f for f in listed if f.startswith(("icon_", "perk_", "medal_")))
+    icons = sorted(f for f in listed if f.startswith(("icon_", "perk_", "medal_", "owner_")))
     uis = sorted(f for f in listed if f.startswith("ui_"))
     if icons or uis:
         sheet = Image.new("RGB", (max(len(icons) * 140 + 10, 1060), 230 + len(uis) * 130), (26, 24, 44))

@@ -21,7 +21,7 @@ function drawToken(name, x, y, size, col) {
   if (name === 'play') return A.drawPlay(ctx, x, y, size * .8, col);
   if (name.startsWith('medal_')) return A.drawMedal(ctx, x, y, size, +name.slice(6));
   if (A.icon(ctx, name, x, y, size)) return;
-  const e = name.startsWith('perk_') ? (PERKS.find(p => 'perk_' + p.k === name) || {}).e : name.startsWith('stall_') ? (DEF[name.slice(6)] || {}).e : '';
+  const e = name.startsWith('perk_') ? (PERKS.find(p => 'perk_' + p.k === name) || {}).e : name.startsWith('stall_') ? (DEF[name.slice(6)] || {}).e : name.startsWith('owner_') ? (L.OWNERS.find(o => 'owner_' + o.k === name) || {}).e : '';
   if (e) { ctx.font = `${Math.round(size * .8)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(e, x, y); }
 }
 function txt(s, x, y, px, col = TXT, al = 'left', b = false) {
@@ -44,7 +44,7 @@ function wrap(s, maxW, px) {
   if (line) out.push(line); return out;
 }
 const hit = (x, y, w, h, fn) => ui.hits.push({ x, y, w, h, fn });
-const toast = t => { ui.toast = { t, life: 1.5 }; };
+const toast = (t, life = 1.5) => { ui.toast = { t, life }; };
 const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
 // 一块牌子:硬投影 + 纯色 + 描边。按钮、价签、弹窗都用它。
 // 美术交了九宫格底图(ui_*.png)就改用图片,图里自带描边和硬投影,所以图片画到 h + lift 的高度,占住原来投影的位置
@@ -69,8 +69,13 @@ function btn(x, y, w, h, label, kind, fn, dis) {
 const SUP_INFO = { lamp: n => `吸引+${20 * n}%`, fridge: n => `饮甜+${50 * n}%`, grill: n => `小吃+${40 * n}%`, cat: n => `每单+¥${2 * n}` };
 
 // ---------- 玩家档案(跨局保存):最高纪录、累计过关晚数、音效开关 ----------
-const prof = Object.assign({ best: 0, cleared: 0, sound: true, streak: 0, lastDay: 0, daily: { day: 0, tries: 0, extra: 0, best: 0, medal: 0 } }, (() => { try { return JSON.parse(P.store.get('prof')) || {}; } catch (e) { return {}; } })());
+const prof = Object.assign({ best: 0, cleared: 0, medal: 0, sound: true, streak: 0, lastDay: 0, daily: { day: 0, tries: 0, extra: 0, best: 0, medal: 0 } }, (() => { try { return JSON.parse(P.store.get('prof')) || {}; } catch (e) { return {}; } })());
 const saveProf = () => P.store.set('prof', JSON.stringify(prof));
+// 摊主是否已解锁,以及当前已解锁的名单(用来在档案变化前后对比,看有没有新解锁的)
+prof.medal = Math.max(prof.medal || 0, (prof.daily && prof.daily.medal) || 0);   // 老存档没有这一项:用今天的奖牌补上
+const ownerOpen = o => !o.need || (prof[o.need.stat] || 0) >= o.need.v;
+const openOwners = () => L.OWNERS.filter(ownerOpen).map(o => o.k);
+const newOwnerLines = before => L.OWNERS.filter(o => ownerOpen(o) && before.indexOf(o.k) < 0).map(o => `解锁新摊主:{owner_${o.k}}${o.n},重新开始时可以选`);
 G.cleared = prof.cleared;
 // 每日挑战:每天免费 3 次,看广告可以加次数。today() 是按本地时间算的「第几天」
 const FREE_TRIES = 3, MEDAL = ['', '{medal_1}', '{medal_2}', '{medal_3}'];
@@ -184,25 +189,33 @@ function startDaily(rival, skipIntro) {
   }
   enterArena(rival, skipIntro, true);
 }
+// 连续挑战的进度:今天打没打、断没断,离下一档奖励还差几天
+function streakLine() {
+  const day = today(), alive = prof.lastDay === day || prof.lastDay === day - 1, n = alive ? prof.streak : 0, nx = L.nextStreak(n);
+  const head = n ? `已连续挑战 ${n} 天` + (prof.lastDay === day ? '' : ',今天打一局就能续上') : '每天打一局每日挑战,连续几天有奖励';
+  return nx ? head + `。连续 ${nx[0]} 天奖励解锁进度 +${nx[1]}` : head;
+}
 function challengeModal() {
   const th = L.themeOf(today()), ds = dailyState(), m = L.medalLines(th), left = Math.max(0, FREE_TRIES + ds.extra - ds.tries);
   ui.modal = {
     title: '挑战', small: true,
-    lines: [`今日主题「${th.n}」:${th.d}`, ds.tries ? `今日最高 ¥${ds.best} ${MEDAL[ds.medal]},还剩 ${left} 次` : `今天还没打,免费 ${FREE_TRIES} 次,金牌线 ¥${m[2]}`, '自由擂台不限次数,打完可以发给好友来挑战'],
+    lines: [`今日主题「${th.n}」:${th.d}`, ds.tries ? `今日最高 ¥${ds.best} ${MEDAL[ds.medal]},还剩 ${left} 次` : `今天还没打,免费 ${FREE_TRIES} 次,金牌线 ¥${m[2]}`, streakLine(), '自由擂台不限次数,打完可以发给好友来挑战'],
     buttons: [{ label: '每日挑战', kind: 'pri', fn: () => startDaily(null) }, { label: '自由擂台', kind: 'sec', fn: () => enterArena(null) }, { label: '关闭', kind: 'sec', fn: () => { ui.modal = null; } }]
   };
 }
 function dailySettle(r) {
   const S = G.S, score = r.inc, rival = S.rival, th = L.themeOf(S.day), m = L.medalLines(th), ds = dailyState(), payload = L.encodeArena(score);
   const medal = score >= m[2] ? 3 : score >= m[1] ? 2 : score >= m[0] ? 1 : 0, gain = Math.max(0, medal - ds.medal);   // 当天奖牌升档才加解锁进度
-  if (prof.lastDay !== ds.day) { prof.streak = prof.lastDay === ds.day - 1 ? prof.streak + 1 : 1; prof.lastDay = ds.day; }
+  let bonus = 0;   // 当天第一次打完时累计连续天数,满 3/7/14/30 天额外给解锁进度
+  if (prof.lastDay !== ds.day) { prof.streak = prof.lastDay === ds.day - 1 ? prof.streak + 1 : 1; prof.lastDay = ds.day; bonus = L.streakBonus(prof.streak); }
   ds.best = Math.max(ds.best, score); ds.medal = Math.max(ds.medal, medal);
-  const before = prof.cleared; prof.cleared += gain; G.cleared = prof.cleared; saveProf();
+  const owners0 = openOwners(); prof.medal = Math.max(prof.medal || 0, medal);
+  const before = prof.cleared; prof.cleared += gain + bonus; G.cleared = prof.cleared; saveProf();
   const fresh = L.UNLOCKS.filter(u => u.at > before && u.at <= prof.cleared), left = FREE_TRIES + ds.extra - ds.tries;
   const lines = [medal ? `${MEDAL[medal]} 拿到${['', '铜', '银', '金'][medal]}牌` + (gain ? `,解锁进度 +${gain}` : '') : `还差 ¥${m[0] - score} 拿铜牌`]
     .concat(medal < 3 && medal > 0 ? [`下一档 ${MEDAL[medal + 1]} ¥${m[medal]}`] : [],
       rival ? [`好友 ¥${rival.score},` + (score > rival.score ? '你赢了' : `还差 ¥${rival.score - score + 1}`)] : [],
-      [`今日最高 ¥${ds.best} · 连续挑战 ${prof.streak} 天`], fresh.map(u => `解锁新摊位:{stall_${u.id}}${DEF[u.id].n}`));
+      [`今日最高 ¥${ds.best} · 连续挑战 ${prof.streak} 天`], bonus ? [`连续挑战 ${prof.streak} 天奖励:解锁进度 +${bonus}`] : [], newOwnerLines(owners0), fresh.map(u => `解锁新摊位:{stall_${u.id}}${DEF[u.id].n}`));
   if (medal) sfx.ok(); else sfx.fail();
   ui.modal = {
     title: `今日挑战 ¥${score}`, tone: medal ? 'ok' : 'bad', small: true, lines,
@@ -249,7 +262,7 @@ function onSale(c, s, amt, f) {
   ui.pops.push({ x: p.x + p.w / 2, y: p.y + 6, t: 0, s: '+¥' + amt, c: f.thirsty ? '#8fdcff' : c.rich ? '#fff0a0' : GOLD, big: special });
   const n = Math.min(4, 1 + Math.floor(amt / 15));
   for (let i = 0; i < n; i++) ui.coins.push({ x0: p.x + p.w / 2, y0: p.y + p.h * .4, t: -i * .05, d: .45 + Math.random() * .2, cx: (Math.random() - .5) * 90 });
-  if (f.thirsty) feed(`口渴连击 ×2 · ${d.n} +¥${amt}`); else if (c.rich) feed(`土豪消费 ×3 · ${d.n} +¥${amt}`);
+  if (f.thirsty) feed(`口渴连击 ×${f.thirsty} · ${d.n} +¥${amt}`); else if (c.rich) feed(`土豪消费 ×3 · ${d.n} +¥${amt}`);
   else if (f.last) feed(`临走再买 · ${d.n} +¥${amt}`); else if (s.id === 'ring') feed('有人玩了套圈,心情大好');
   sfx.coin();
 }
@@ -279,18 +292,18 @@ function topEarners() {
 function showSettle(r) {
   if (G.S.arena) return arenaSettle(r);
   if (r.ok) {
-    sfx.ok(); const base = r.inc + r.tip, extra = Math.round(base * .5);
+    sfx.ok(); const base = r.inc + r.tip + r.interest + r.goal, extra = Math.round(base * .5);
     ui.modal = {
-      title: '今晚达标!', tone: 'ok', small: true, lines: [`营业额 ¥${r.inc} / 目标 ¥${r.T}`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], topEarners()),
+      title: '今晚达标!', tone: 'ok', small: true, lines: [`营业额 ¥${r.inc} / 目标 ¥${r.T}`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], r.interest ? [`存钱罐利息 +¥${r.interest}`] : [], r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
       buttons: [{ label: `收摊  +¥${base}`, kind: 'pri', fn: () => afterSettle(true, base) }, { label: `{play}看广告多得 50%  +¥${base + extra}`, kind: 'ad', fn: () => watchAd(() => afterSettle(true, base + extra)) }]
     };
   } else {
     sfx.fail();
     P.store.set('pendingFail', String(r.inc));   // 记一笔:如果在这个界面直接退出,下次进来按未达标结算
     ui.modal = {
-      title: '没达标', tone: 'bad', small: true, lines: [`营业额 ¥${r.inc},还差 ¥${r.T - r.inc}`].concat(topEarners()),
+      title: '没达标', tone: 'bad', small: true, lines: [`营业额 ¥${r.inc},还差 ¥${r.T - r.inc}`].concat(r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
       buttons: (r.encore ? [] : [{ label: '{play}看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }])
-        .concat([{ label: '认了(失去一颗心)', kind: 'sec', fn: () => afterSettle(false, r.inc) }])
+        .concat([{ label: '认了(失去一颗心)', kind: 'sec', fn: () => afterSettle(false, r.inc + r.goal) }])
     };
   }
 }
@@ -298,7 +311,7 @@ const shareBtn = n => ({ label: '炫耀一下', kind: 'sec', fn: () => { drawAll
 function afterSettle(ok, gain) {
   P.store.set('pendingFail', '');
   const night = G.S.night, res = L.settle(ok, gain); ui.modal = null; ui.cust = [];
-  let fresh = [];
+  let fresh = []; const owners0 = openOwners();
   if (ok) {   // 记入档案:最高纪录、累计过关晚数;再看有没有新摊位解锁
     const before = prof.cleared; prof.cleared++; prof.best = Math.max(prof.best, night); saveProf(); G.cleared = prof.cleared;
     fresh = L.UNLOCKS.filter(u => u.at > before && u.at <= prof.cleared);
@@ -317,33 +330,50 @@ function afterSettle(ok, gain) {
         .concat(night > 1 ? [shareBtn(night - 1)] : [], [{ label: '重新开始', kind: 'sec', fn: restart }])
     };
   };
-  if (fresh.length) { sfx.merge(); ui.modal = { title: '新摊位解锁!', tone: 'ok', small: true, lines: fresh.map(u => `{stall_${u.id}}${DEF[u.id].n}:${DEF[u.id].d}`).concat(['从现在起会出现在进货里']), buttons: [{ label: '太好了', kind: 'pri', fn: go }] }; }
+  const ownerLines = newOwnerLines(owners0);
+  if (fresh.length || ownerLines.length) {
+    sfx.merge(); ui.modal = {
+      title: fresh.length ? '新摊位解锁!' : '新摊主解锁!', tone: 'ok', small: true,
+      lines: fresh.map(u => `{stall_${u.id}}${DEF[u.id].n}:${DEF[u.id].d}`).concat(fresh.length ? ['从现在起会出现在进货里'] : [], ownerLines), buttons: [{ label: '太好了', kind: 'pri', fn: go }]
+    };
+  }
   else go();
 }
 function perkModal() {
   ui.modal = { title: '选一条经营秘诀', perks: L.perkChoices().map(p => ({ p, fn: () => { L.takePerk(p); ui.modal = null; sfx.merge(); } })), buttons: [{ label: '{play}看广告换一批', kind: 'ad', fn: () => watchAd(perkModal) }] };
 }
-function restart() { if (G.S.arena) L.exitArena(); L.newGame(); resetUi(); }
+// 重新开始:先选一位摊主。没解锁的也列出来并写明条件,给玩家一个盼头
+function startRun(k) { L.newGame(k); resetUi(); sfx.open(); }
+function restart() {
+  if (G.S.arena) L.exitArena();
+  ui.modal = {
+    title: '选一位摊主',
+    perks: L.OWNERS.map(o => { const ok = ownerOpen(o); return { p: o, icon: 'owner_' + o.k, locked: !ok, note: ok ? '' : '解锁条件:' + o.need.t, fn: ok ? () => startRun(o.k) : () => { sfx.bad(); toast('还没解锁:' + o.need.t); } }; }),
+    buttons: [{ label: '随便来一位', kind: 'sec', fn: () => startRun(pick(openOwners())) }]
+  };
+}
 function helpModal() {
   const next = L.UNLOCKS.find(u => prof.cleared < u.at);   // 下一个要解锁的摊位
   ui.modal = {
     title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚营业额达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍']
-      .concat(prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : []),
+      .concat(!G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : []),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }, { label: `音效:${prof.sound ? '开' : '关'}`, kind: 'sec', fn: () => { prof.sound = !prof.sound; saveProf(); helpModal(); } }]
       .concat(G.S.arena ? [] : [{ label: '重新开始主线', kind: 'sec', fn: restart }])
   };
 }
-// ---------- 摊位图鉴:12 个摊位排成一页,点开看作用和搭配 ----------
+// ---------- 摊位图鉴:所有摊位排成一页(售卖摊在前),点开看作用和搭配 ----------
 const HINT = {
   kebab: '后面接一个奶茶摊,奶茶的收入翻倍', tofu: '周围只放小吃,或者摆到街对面,免得熏到别的摊', rice: '单价高。放在靠街尾的位置,免得顾客吃饱后不买前面的小吃',
   tea: '放在烤串后面。挨着冰柜再加 50%', candy: '便宜好卖,适合用来凑同名升级', ice: '放街尾:顾客前面买得越多,它卖得越贵',
   ring: '放街口:玩过的顾客之后每一单都多付 40%', phone: '放在套圈后面,开心的顾客更愿意买', lamp: '放里排,让它照到尽量多的靠街摊位',
   fridge: '挨着奶茶、糖葫芦、冰粉', grill: '挨着烤串、臭豆腐、炒饭', cat: '挨着卖得最多的摊位,每卖一单都多赚',
+  lemon: '放在炒饭后面,吃饱的顾客喝完又能买小吃;放在烤串后面一样翻倍', balloon: '放街口:拿到气球的顾客一路上都更愿意买',
+  crayfish: '后面接奶茶或柠檬水,饮品收入×3。冷门,旁边放灯牌',
 };
 const CAT_NAME = { food: '小吃', drink: '饮品', sweet: '甜品', game: '玩具', goods: '杂货' };
 const needOf = id => { const u = L.UNLOCKS.find(x => x.id === id); return u ? Math.max(0, u.at - prof.cleared) : 0; };
 function codexModal() {
-  ui.modal = { title: '摊位图鉴', small: true, lines: ['点一个摊位看它的作用和搭配。棚顶和色带的颜色代表品类。'], grid: Object.keys(DEF).map(id => ({ id, need: needOf(id) })), buttons: [{ label: '关闭', kind: 'sec', fn: () => { ui.modal = null; } }] };
+  ui.modal = { title: '摊位图鉴', small: true, lines: ['点一个摊位看它的作用和搭配。棚顶和色带的颜色代表品类。'], grid: Object.keys(DEF).sort((a, b) => !!DEF[a].sup - !!DEF[b].sup).map(id => ({ id, need: needOf(id) })), buttons: [{ label: '关闭', kind: 'sec', fn: () => { ui.modal = null; } }] };
 }
 function stallModal(id) {
   const d = DEF[id], need = needOf(id);
@@ -516,7 +546,12 @@ function drawPanel() {
       txt(d.sup ? '支援摊' : `售价 ${d.p} · 吸引 ${Math.round(d.a * 100)}%`, 30 + ctx.measureText(head).width, y + 24, 11, BROWN);
       txt(wrap(d.d, stall ? 250 : 335, 11)[0], 20, y + 42, 11, INK);
       if (stall) btn(W - 94, y + 17, 76, 28, `退货 +¥${L.sellVal(sel.s)}`, 'pri', () => { L.sell(sel.s); ui.sel = null; sfx.place(); });
-    } else { txt('点卡片选货,再点地块摆放。点已摆的摊位可以挪动。', 20, y + 24, 11.5, INK, 'left', true); txt('靠街的摊位才接客;名牌上的数字是「售价·吸引力」', 20, y + 42, 11, BROWN); }
+    } else {
+      const gi = L.goalInfo();   // 今晚有小目标时,第一行换成小目标
+      txt(gi ? `小目标:${gi.text},奖 ¥${gi.reward}` : '点卡片选货,再点地块摆放。点已摆的摊位可以挪动。', 20, y + 24, 11.5, INK, 'left', true);
+      const ev = L.eventInfo();   // 今晚有事件时,第二行换成事件说明
+      if (ev) txt(wrap(`今晚${ev.n}:${ev.d}`, 335, 11)[0], 20, y + 42, 11, RED, 'left', true); else txt('靠街的摊位才接客;名牌上的数字是「售价·吸引力」', 20, y + 42, 11, BROWN);
+    }
     // 进货卡片:纸价签。顶上是品类色带,中间是摊位的图、名字和一句话作用,底下是价格
     for (let i = 0; i < 4; i++) {
       const o = S.shop[i], d = DEF[o.id], on = sel && sel.kind === 'shop' && sel.i === i, x = 10.5 + i * 90, cy = y + 62 - (on ? 5 : 0), cw = 84, ch = 98, cost = L.costOf(d);
@@ -539,7 +574,7 @@ function drawPanel() {
       else btn(10, y + 170, 84, 40, '{play}换货+4', 'ad', () => watchAd(() => { ui.modal = null; L.addRefresh(4); }));
       btn(100, y + 170, 84, 40, '退出擂台', 'sec', leaveArena);
     } else {
-      btn(10, y + 170, 84, 40, `换货 ¥${L.refCost()}`, 'sec', () => { if (L.refresh(false) === 'nomoney') { sfx.bad(); toast('钱不够'); } else { ui.sel = null; sfx.tap(); } });
+      btn(10, y + 170, 84, 40, L.refCost() ? `换货 ¥${L.refCost()}` : '换货 免费', 'sec', () => { if (L.refresh(false) === 'nomoney') { sfx.bad(); toast('钱不够'); } else { ui.sel = null; sfx.tap(); } });
       btn(100, y + 170, 84, 40, '{play}免费换', 'ad', () => watchAd(() => { ui.modal = null; L.refresh(true); ui.sel = null; }));
     }
     btn(190, y + 170, 175, 40, '开张营业', 'pri', goNight);
@@ -553,6 +588,8 @@ function drawPanel() {
     txt('♪', lx + 4, ly, 12, '#ffe680', 'center', true); txt('开心,多付四成', lx + 13, ly, 10.5, WARM); lx += 96;
     txt('饱', lx + 5, ly, 10, '#ffb38a', 'center', true); txt('不再买小吃', lx + 14, ly, 10.5, WARM);
     ui.feed.forEach((f, i) => { ctx.globalAlpha = Math.min(1, f.life); txt(f.s, W - 16, y + 28 + i * 22, 12, i ? PAPER : '#ffd98a', 'right', !i); }); ctx.globalAlpha = 1;
+    const ev = L.eventInfo(); if (ev) txt(`今晚${ev.n}`, 20, y + 190, 12, '#ffb38a', 'left', true);
+    const gi = L.goalInfo(); if (gi) txt(`小目标:${gi.text}(${gi.cur}/${gi.n})` + (gi.done ? ' 达成' : ''), 20, y + 162, 11.5, gi.done ? '#9fe6b8' : WARM, 'left', true);
     if (S.phase === 'night') btn(W - 126, y + 170, 116, 40, ui.speed > 1 ? '正常速度' : '加速 ×2', 'sec', () => { ui.speed = ui.speed > 1 ? 1 : 2; sfx.tap(); });
   }
 }
@@ -601,9 +638,12 @@ function drawModal() {
     cy += hGrid;
   }
   for (const pk of m.perks || []) {
+    const own = pk.icon ? 0 : L.perk(pk.p.k);   // 经营秘诀写「已有几个」;摊主不写
+    ctx.globalAlpha = m.a * (pk.locked ? .5 : 1);
     plate(x + 16, cy, w - 32, 56, '#fff5df', 7, 2);
-    drawToken('perk_' + pk.p.k, x + 44, cy + 28, 36, INK);
-    txt(pk.p.n + (L.perk(pk.p.k) ? `(已有 ${L.perk(pk.p.k)})` : ''), x + 72, cy + 19, 14, RED, 'left', true); txt(pk.p.d, x + 72, cy + 39, 11.5, INK);
+    drawToken(pk.icon || 'perk_' + pk.p.k, x + 44, cy + 28, 36, INK);
+    txt(pk.p.n + (own ? `(已有 ${own})` : ''), x + 72, cy + 19, 14, RED, 'left', true); txt(pk.note || pk.p.d, x + 72, cy + 39, 11.5, pk.locked ? BROWN : INK);
+    ctx.globalAlpha = m.a;
     hit(x + 16, cy, w - 32, 58, pk.fn); cy += 66;
   }
   cy += 4; for (const b of m.buttons) { btn(x + 20, cy, w - 40, 44, b.label, b.kind, b.fn); cy += 54; }
@@ -692,6 +732,8 @@ function tick(dt) {
   for (const f of ui.feed) f.life -= DT; ui.feed = ui.feed.filter(f => f.life > 0);
   // 好友战书:等回到白天、没有弹窗时再进擂台,不打断正在进行的夜晚
   if (ui.tut) { const st = TUT[ui.tut.step]; if (st.done && st.done()) nextTut(); }
+  const evKey = S.phase === 'day' && S.event ? S.night + S.event.k : '';   // 新的一晚碰上事件:等弹窗关掉后提示一次
+  if (evKey && evKey !== ui.evKey && !ui.modal && !ui.tut && !S.arena) { ui.evKey = evKey; toast(`今晚碰上「${L.eventInfo().n}」,看下方说明`, 2.5); }
   if (ui.pendingRival && S.phase === 'day' && !ui.modal && !ui.tut) { const r = ui.pendingRival; ui.pendingRival = null;
     if (r.day == null) enterArena(r); else if (r.day === today()) startDaily(r); else { startDaily(null); toast('好友的每日挑战已过期,来打今天的'); }
   }

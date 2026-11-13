@@ -9,6 +9,7 @@
   摊位      stall_<摊位名>.png
             摊位名:kebab 烤串 / tofu 臭豆腐 / rice 炒饭 / tea 奶茶 / candy 糖葫芦 / ice 冰粉
                     ring 套圈 / phone 手机壳 / lamp 灯牌 / fridge 冰柜 / grill 炭炉 / cat 招财猫
+                    lemon 柠檬水 / balloon 气球 / crayfish 小龙虾
             二级、三级的变体:stall_kebab_2.png、stall_kebab_3.png(可以先不做)
             朝向反了(正面朝左下):文件名末尾加 _flip,例如 stall_tea_flip.png,脚本会水平翻转
 
@@ -21,6 +22,8 @@
     图标    icon_coin / icon_heart / icon_heart_empty / medal_1 / medal_2 / medal_3
             perk_more / perk_big / perk_back / perk_price / perk_shout / perk_last
             perk_first / perk_rich / perk_cheap / perk_land / perk_tip
+            perk_save / perk_tail / perk_supply / perk_queue / perk_set
+            owner_none / owner_bbq / owner_sweet / owner_local / owner_rich / owner_star / owner_calc(摊主头像)
     底图    ui_btn_red / ui_btn_green / ui_btn_paper / ui_paper / ui_wood
             ui_ribbon_red / ui_ribbon_gold / ui_ribbon_gray
     其他    tile_wood(底部面板木板,要能无缝平铺)、gate(街口牌楼)

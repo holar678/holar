@@ -137,6 +137,11 @@ export function drawPerson(ctx, c, t) {
   ctx.fill();
   if (c.dir > 0) { ctx.fillStyle = '#2b2230'; ctx.fillRect(x - 3, y - 27 - bob, 1.5, 2); ctx.fillRect(x + 1.5, y - 27 - bob, 1.5, 2); }
   }
+  if (c.balloon) {   // 买过气球的顾客手里牵一只气球
+    const bx = x + 9, by = y - 40 - bob + Math.sin(t * 3 + c.seed) * 1.5;
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + 5, y - 16 - bob); ctx.lineTo(bx, by + 6); ctx.stroke();
+    ctx.fillStyle = '#ff6b6b'; ell(ctx, bx, by, 5, 6); ctx.fill(); ctx.strokeStyle = '#2b1a12'; ctx.lineWidth = 1.2; ctx.stroke();
+  }
   const iy = y - (im ? 49 : 40) - bob; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (c.rich) { glow(ctx, x, y - 20, 16, '255,215,90', .35); ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#ffe680'; ctx.fillText('¥¥', x, iy); }
   else if (c.thirsty) { ctx.fillStyle = '#7fd6ff'; ctx.beginPath(); ctx.moveTo(x, iy - 5); ctx.quadraticCurveTo(x + 5, iy + 2, x, iy + 4); ctx.quadraticCurveTo(x - 5, iy + 2, x, iy - 5); ctx.fill(); }

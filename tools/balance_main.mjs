@@ -4,6 +4,7 @@
 const L = await import(process.argv[2]);
 const { G, DEF, ROWS, MAXN, PERKS } = L;
 G.cleared = +process.argv[3] || 0;
+const OWNER = process.argv[4] || 'none';   // 可选的第三个参数:摊主(logic.js 里 OWNERS 的 k),不写就是「小本经营」
 function day() {
   const S = G.S; let ref = 0, uid = 1000 + S.stalls.length * 7 + S.night * 100;
   for (let step = 0; step < 80; step++) {
@@ -24,7 +25,7 @@ function day() {
 }
 const N = 400, ratio = Array.from({ length: MAXN }, () => []); let wins = 0; const reach = Array(MAXN + 1).fill(0);
 for (let g = 0; g < N; g++) {
-  L.newGame(); let guard = 0;
+  L.newGame(OWNER); let guard = 0;
   while (guard++ < 40) {
     const S = G.S, n = S.night; day(); const inc = L.quickSim(1), T = L.targetOf(n); ratio[n - 1].push(inc / T);
     const res = L.settle(inc >= T, inc);
@@ -34,6 +35,6 @@ for (let g = 0; g < N; g++) {
   }
 }
 const q = (a, p) => { a = a.slice().sort((x, y) => x - y); return a.length ? a[Math.floor(a.length * p)].toFixed(2) : '-'; };
-console.log('累计过关 ' + G.cleared + ' 晚的玩家 · 自动试玩通关率 ' + (wins / N * 100).toFixed(0) + '%');
+console.log('累计过关 ' + G.cleared + ' 晚的玩家' + (OWNER !== 'none' ? ' · 摊主 ' + OWNER : '') + ' · 自动试玩通关率 ' + (wins / N * 100).toFixed(0) + '%');
 console.log('每晚「营业额/目标」的中位数(括号里是较差的四分之一):');
 console.log(ratio.map((a, i) => `第${i + 1}晚 ${q(a, .5)}(${q(a, .25)}) 达标${(a.filter(x => x >= 1).length / Math.max(1, a.length) * 100).toFixed(0)}%`).join('\n'));
