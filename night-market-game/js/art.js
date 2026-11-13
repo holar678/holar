@@ -3,6 +3,7 @@
 //   摊位 stall_<id>.png(可选分级 stall_<id>_2.png / _3.png),id 见 logic.js 的 DEF
 //   顾客 cust_<名字>_front.png / cust_<名字>_back.png,土豪是 cust_rich_front / cust_rich_back
 //   地面 tile_street.jpg(街面)、tile_walk.jpg(摊位区)
+//   界面 icon_*.png / perk_*.png / medal_*.png(图标)、ui_*.png(九宫格底图)、tile_wood.jpg、gate.png,见美术规格第 11 节
 import ASSETS from './assets.js';
 // 视角约定(2.5D):摊位是斜侧 3/4 视角,正面朝向右下方,能看到正面、左端面和顶面。
 // 素材只画这一个朝向,放在街道左侧;街道右侧的摊位由代码水平镜像,这样两侧都朝向街心。
@@ -142,12 +143,55 @@ export function drawPerson(ctx, c, t) {
   else if (c.happy) { ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = '#ffe680'; ctx.fillText('♪', x, iy); }
   else if (c.full) { ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#ffb38a'; ctx.fillText('饱', x, iy); }
 }
+// ---------- 界面素材(美术规格第 11 节) ----------
+// 图标:美术给的是 128×128、四周留 8 像素的方图。有图就以 (x,y) 为中心画成 size 大小,返回 true;没图返回 false,由调用方画占位
+export function icon(ctx, name, x, y, size) {
+  const im = IMG[name]; if (!im) return false;
+  ctx.drawImage(im, x - size / 2, y - size / 2, size, size); return true;
+}
+// 九宫格拉伸:原图四个角各 SLICE 像素保持原样,四条边和中间拉长。corner 是角在屏幕上画多大(设计稿单位)。
+// 有图返回 true;没图返回 false,由调用方用代码画
+const SLICE = 24;
+export function nine(ctx, name, x, y, w, h, corner) {
+  const im = IMG[name]; if (!im) return false;
+  const s = SLICE, iw = im.width, ih = im.height, d = Math.min(corner, w / 2, h / 2), o = .5;   // o:相邻两块互相压住半个单位,缩放后不露缝
+  const sx = [0, s, iw - s], sw = [s, iw - 2 * s, s], sy = [0, s, ih - s], sh = [s, ih - 2 * s, s];
+  const dx = [x, x + d, x + w - d], dw = [d, w - 2 * d, d], dy = [y, y + d, y + h - d], dh = [d, h - 2 * d, d];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    if (dw[c] <= 0 || dh[r] <= 0) continue;
+    const ex = c === 1 ? o : 0, ey = r === 1 ? o : 0;
+    ctx.drawImage(im, sx[c], sy[r], sw[c], sh[r], dx[c] - ex, dy[r] - ey, dw[c] + 2 * ex, dh[r] + 2 * ey);
+  }
+  return true;
+}
+// 奖牌:1 铜 2 银 3 金。有 medal_<n>.png 用图片,没有就画一枚带绶带的圆牌
+const MEDAL_COL = ['', '#c8793a', '#c9cdd6', '#ffc94a'];
+export function drawMedal(ctx, x, y, size, n) {
+  if (icon(ctx, 'medal_' + n, x, y, size)) return;
+  const r = size * .3, cy = y + size * .14, INK = '#2b1a12';
+  ctx.lineWidth = Math.max(1, size * .06); ctx.strokeStyle = INK; ctx.lineJoin = 'round';
+  for (const k of [-1, 1]) {   // 两条绶带
+    const top = y - size * .42, bot = cy - r * .4;
+    ctx.beginPath(); ctx.moveTo(x + k * r * .95, top); ctx.lineTo(x + k * r * .15, top); ctx.lineTo(x - k * r * .3, bot); ctx.lineTo(x + k * r * .45, bot); ctx.closePath();
+    ctx.fillStyle = k < 0 ? '#d24a35' : '#3d7fc4'; ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = MEDAL_COL[n] || MEDAL_COL[3]; ctx.beginPath(); ctx.arc(x, cy, r, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(43,26,18,.45)'; ctx.lineWidth = Math.max(.8, size * .035); ctx.beginPath(); ctx.arc(x, cy, r * .62, 0, 7); ctx.stroke();
+}
+// 「看广告」的播放标记:一个实心三角。不用 ▶ 字符,它在一些手机上会被显示成表情
+export function drawPlay(ctx, x, y, size, col) {
+  const a = size * .42; ctx.fillStyle = col; ctx.beginPath();
+  ctx.moveTo(x - a * .7, y - a); ctx.lineTo(x + a, y); ctx.lineTo(x - a * .7, y + a); ctx.closePath(); ctx.fill();
+}
+
 export function drawHeart(ctx, x, y, s, on) {
+  if (icon(ctx, on ? 'icon_heart' : 'icon_heart_empty', x, y, s * 2.9)) return;
   ctx.fillStyle = on ? '#ff5a6e' : '#3a3658'; ctx.beginPath(); ctx.moveTo(x, y + s * .9);
   ctx.bezierCurveTo(x - s * 1.5, y - s * .1, x - s * .7, y - s * 1.1, x, y - s * .3);
   ctx.bezierCurveTo(x + s * .7, y - s * 1.1, x + s * 1.5, y - s * .1, x, y + s * .9); ctx.fill();
 }
 export function drawCoin(ctx, x, y, r) {
+  if (icon(ctx, 'icon_coin', x, y, r * 2.4)) return;
   ctx.fillStyle = '#c98a1a'; ctx.beginPath(); ctx.arc(x, y + 1, r, 0, 7); ctx.fill();
   ctx.fillStyle = '#ffcf4a'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
   ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(x - r * .3, y - r * .3, r * .35, 0, 7); ctx.fill();

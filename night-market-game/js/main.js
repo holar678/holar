@@ -10,23 +10,59 @@ const GOLD = '#ffc94a', DIM = '#b9a98f', TXT = '#fbf3e2';
 const INK = '#2b1a12', PAPER = '#f6e7c8', PAPER_D = '#e6d2a8', WOOD = '#6b4027', WOOD_D = '#3a2216', RED = '#d24a35', GREEN = '#3f9163', WARM = '#c9b79a', BROWN = '#8a6a48';
 const ui = { sel: null, modal: null, toast: null, hits: [], t: 0, dark: .35, pops: [], coins: [], rings: [], money: 60, inc: 0, feed: [], speed: 1, cust: [], spawn: 0, gap: .3, endT: 0, peek: null, best: 0, pendingRival: null, lastAr: null };
 const pick = a => a[Math.random() * a.length | 0];
+const GATE_TEXT_Y = .74;   // 牌楼图里横匾中心离底边的高度占整张图的比例,换了牌楼图要按图调
 
 // ---------- 基础绘制 ----------
 const font = (px, b) => `${b ? 'bold ' : ''}${px}px "PingFang SC","Microsoft YaHei",sans-serif`;
-function txt(s, x, y, px, col = TXT, al = 'left', b = false) { ctx.font = font(px, b); ctx.fillStyle = col; ctx.textAlign = al; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); }
-function wrap(s, maxW, px) { ctx.font = font(px); const out = []; let line = ''; for (const ch of s) { if (ctx.measureText(line + ch).width > maxW) { out.push(line); line = ch; } else line += ch; } if (line) out.push(line); return out; }
+// 文字里可以嵌图标,写成 {名字}:{medal_1}~{medal_3} 奖牌、{perk_<k>} 经营秘诀、{stall_<id>} 摊位、{play} 看广告的三角。
+// 有图片画图片,没有就画占位(奖牌和三角用代码画,秘诀和摊位暂时用表情符号)
+const tokW = px => px * 1.45;
+function drawToken(name, x, y, size, col) {
+  if (name === 'play') return A.drawPlay(ctx, x, y, size * .8, col);
+  if (name.startsWith('medal_')) return A.drawMedal(ctx, x, y, size, +name.slice(6));
+  if (A.icon(ctx, name, x, y, size)) return;
+  const e = name.startsWith('perk_') ? (PERKS.find(p => 'perk_' + p.k === name) || {}).e : name.startsWith('stall_') ? (DEF[name.slice(6)] || {}).e : '';
+  if (e) { ctx.font = `${Math.round(size * .8)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(e, x, y); }
+}
+function txt(s, x, y, px, col = TXT, al = 'left', b = false) {
+  s = String(s); ctx.font = font(px, b); ctx.fillStyle = col; ctx.textAlign = al; ctx.textBaseline = 'middle';
+  if (s.indexOf('{') < 0) { ctx.fillText(s, x, y); return; }
+  const parts = s.split(/\{(\w+)\}/);   // 奇数位是图标名
+  let w = 0; parts.forEach((p, i) => { w += i % 2 ? tokW(px) : ctx.measureText(p).width; });
+  let cx = al === 'center' ? x - w / 2 : al === 'right' ? x - w : x;
+  parts.forEach((p, i) => {
+    if (i % 2) { drawToken(p, cx + tokW(px) / 2, y, px * 1.3, col); cx += tokW(px); ctx.font = font(px, b); ctx.fillStyle = col; ctx.textBaseline = 'middle'; }
+    else if (p) { ctx.textAlign = 'left'; ctx.fillText(p, cx, y); cx += ctx.measureText(p).width; }
+  });
+}
+function wrap(s, maxW, px) {
+  ctx.font = font(px); const out = []; let line = '', lw = 0;
+  for (const u of s.match(/\{\w+\}|[\s\S]/gu) || []) {   // 图标整体算一个字,不会被拆到两行
+    const uw = u.length > 2 && u[0] === '{' ? tokW(px) : ctx.measureText(u).width;
+    if (lw + uw > maxW && line) { out.push(line); line = u; lw = uw; } else { line += u; lw += uw; }
+  }
+  if (line) out.push(line); return out;
+}
 const hit = (x, y, w, h, fn) => ui.hits.push({ x, y, w, h, fn });
 const toast = t => { ui.toast = { t, life: 1.5 }; };
 const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
-// 一块牌子:硬投影 + 纯色 + 描边。按钮、价签、弹窗都用它
-function plate(x, y, w, h, fill, r = 8, lift = 3) {
+// 一块牌子:硬投影 + 纯色 + 描边。按钮、价签、弹窗都用它。
+// 美术交了九宫格底图(ui_*.png)就改用图片,图里自带描边和硬投影,所以图片画到 h + lift 的高度,占住原来投影的位置
+const NINE_OF = { [PAPER]: 'ui_paper', '#fff5df': 'ui_paper', [PAPER_D]: 'ui_paper', [WOOD]: 'ui_wood' };
+// 角画多大:按钮和木牌(192×96 的图)按高度等比,纸签(192×192)按短边的八分之一,限制在 6~14 之间
+const cornerOf = (img, w, h) => img === 'ui_paper' ? Math.max(6, Math.min(14, Math.min(w, h) / 8)) : h / 4;
+function plate(x, y, w, h, fill, r = 8, lift = 3, img = NINE_OF[fill]) {
+  if (img && A.image(img)) {
+    const a = ctx.globalAlpha; if (fill === PAPER_D) ctx.globalAlpha = a * .55;   // 暗一号的纸(没解锁的图鉴格子)用半透明表示
+    A.nine(ctx, img, x, y, w, h + lift, cornerOf(img, w, h)); ctx.globalAlpha = a; return;
+  }
   A.rr(ctx, x, y + lift, w, h, r); ctx.fillStyle = INK; ctx.fill();
   A.rr(ctx, x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
 }
-const BTN = { pri: [RED, PAPER], ad: [GREEN, PAPER], sec: [PAPER, INK] };   // 主按钮红底、广告按钮绿底、普通按钮纸底
+const BTN = { pri: [RED, PAPER, 'ui_btn_red'], ad: [GREEN, PAPER, 'ui_btn_green'], sec: [PAPER, INK, 'ui_btn_paper'] };   // 主按钮红底、广告按钮绿底、普通按钮纸底
 function btn(x, y, w, h, label, kind, fn, dis) {
   const c = BTN[kind]; ctx.globalAlpha = dis ? .4 : 1;
-  plate(x, y, w, h, c[0], 8);
+  plate(x, y, w, h, c[0], 8, 3, c[2]);
   txt(label, x + w / 2, y + h / 2 + 1, h > 40 ? 15 : 13, c[1], 'center', true); ctx.globalAlpha = 1; hit(x, y, w, h + 3, fn);
 }
 // 支援摊名牌上写的作用,随等级变化
@@ -37,7 +73,7 @@ const prof = Object.assign({ best: 0, cleared: 0, sound: true, streak: 0, lastDa
 const saveProf = () => P.store.set('prof', JSON.stringify(prof));
 G.cleared = prof.cleared;
 // 每日挑战:每天免费 3 次,看广告可以加次数。today() 是按本地时间算的「第几天」
-const FREE_TRIES = 3, MEDAL = ['', '🥉', '🥈', '🥇'];
+const FREE_TRIES = 3, MEDAL = ['', '{medal_1}', '{medal_2}', '{medal_3}'];
 const today = () => { const d = new Date(); return Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000); };
 function dailyState() { const day = today(); if (prof.daily.day !== day) prof.daily = { day, tries: 0, extra: 0, best: 0, medal: 0 }; return prof.daily; }
 
@@ -126,7 +162,7 @@ function enterArena(rival, skipIntro, daily) {
     const m = L.medalLines(th);
     ui.modal = {
       title: `每日挑战 · ${th.n}`, small: true,
-      lines: [`今日主题:${th.d}`, `预算 ¥${G.S.money},客流 ${L.custCount() + 2 * L.perk('rich')} 人,只营业一晚。今天所有人进到的货都一样,比的是谁会摆`, `奖牌线:🥉 ¥${m[0]}  🥈 ¥${m[1]}  🥇 ¥${m[2]}。拿到奖牌会推进新摊位的解锁进度`].concat(rival ? [`好友今天的成绩是 ¥${rival.score}`] : []),
+      lines: [`今日主题:${th.d}`, `预算 ¥${G.S.money},客流 ${L.custCount() + 2 * L.perk('rich')} 人,只营业一晚。今天所有人进到的货都一样,比的是谁会摆`, `奖牌线:{medal_1}¥${m[0]}  {medal_2}¥${m[1]}  {medal_3}¥${m[2]}。拿到奖牌会推进新摊位的解锁进度`].concat(rival ? [`好友今天的成绩是 ¥${rival.score}`] : []),
       buttons: [{ label: '开始', kind: 'pri', fn: () => { ui.modal = null; } }]
     };
     return;
@@ -142,7 +178,7 @@ function startDaily(rival, skipIntro) {
   if (ds.tries >= FREE_TRIES + ds.extra) {
     ui.modal = {
       title: '今天的次数用完了', small: true, lines: [`今日最高 ¥${ds.best} ${MEDAL[ds.medal]}`, `每天免费 ${FREE_TRIES} 次,明天会换一个新主题`],
-      buttons: [{ label: '▶ 看广告再来一次', kind: 'ad', fn: () => watchAd(() => { ds.extra++; saveProf(); enterArena(rival, skipIntro, true); }) }, { label: '明天再来', kind: 'sec', fn: () => { if (G.S.arena) leaveArena(); else ui.modal = null; } }]
+      buttons: [{ label: '{play}看广告再来一次', kind: 'ad', fn: () => watchAd(() => { ds.extra++; saveProf(); enterArena(rival, skipIntro, true); }) }, { label: '明天再来', kind: 'sec', fn: () => { if (G.S.arena) leaveArena(); else ui.modal = null; } }]
     };
     return;
   }
@@ -166,12 +202,12 @@ function dailySettle(r) {
   const lines = [medal ? `${MEDAL[medal]} 拿到${['', '铜', '银', '金'][medal]}牌` + (gain ? `,解锁进度 +${gain}` : '') : `还差 ¥${m[0] - score} 拿铜牌`]
     .concat(medal < 3 && medal > 0 ? [`下一档 ${MEDAL[medal + 1]} ¥${m[medal]}`] : [],
       rival ? [`好友 ¥${rival.score},` + (score > rival.score ? '你赢了' : `还差 ¥${rival.score - score + 1}`)] : [],
-      [`今日最高 ¥${ds.best} · 连续挑战 ${prof.streak} 天`], fresh.map(u => `解锁新摊位:${DEF[u.id].e} ${DEF[u.id].n}`));
+      [`今日最高 ¥${ds.best} · 连续挑战 ${prof.streak} 天`], fresh.map(u => `解锁新摊位:{stall_${u.id}}${DEF[u.id].n}`));
   if (medal) sfx.ok(); else sfx.fail();
   ui.modal = {
     title: `今日挑战 ¥${score}`, tone: medal ? 'ok' : 'bad', small: true, lines,
     buttons: [{ label: '发给好友比一比', kind: 'pri', fn: () => share(`今天的夜市挑战「${th.n}」我拿了 ¥${score},来比比?`, payload) },
-      left > 0 ? { label: `再来一次(今天还剩 ${left} 次)`, kind: 'sec', fn: () => startDaily(rival, true) } : { label: '▶ 看广告再来一次', kind: 'ad', fn: () => watchAd(() => { ds.extra++; saveProf(); enterArena(rival, true, true); }) },
+      left > 0 ? { label: `再来一次(今天还剩 ${left} 次)`, kind: 'sec', fn: () => startDaily(rival, true) } : { label: '{play}看广告再来一次', kind: 'ad', fn: () => watchAd(() => { ds.extra++; saveProf(); enterArena(rival, true, true); }) },
       { label: '回到主线', kind: 'sec', fn: leaveArena }]
   };
 }
@@ -192,7 +228,7 @@ function arenaSettle(r) {
   } else {
     sfx.fail(); ui.modal = {
       title: '差一点', tone: 'bad', lines: [`你 ¥${score}  :  擂主 ¥${rival.score}`, `还差 ¥${rival.score - score + 1}`],
-      buttons: (r.encore ? [] : [{ label: '▶ 看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }]).concat([again, back])
+      buttons: (r.encore ? [] : [{ label: '{play}看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }]).concat([again, back])
     };
   }
 }
@@ -246,14 +282,14 @@ function showSettle(r) {
     sfx.ok(); const base = r.inc + r.tip, extra = Math.round(base * .5);
     ui.modal = {
       title: '今晚达标!', tone: 'ok', small: true, lines: [`营业额 ¥${r.inc} / 目标 ¥${r.T}`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], topEarners()),
-      buttons: [{ label: `收摊  +¥${base}`, kind: 'pri', fn: () => afterSettle(true, base) }, { label: `▶ 看广告多得 50%  +¥${base + extra}`, kind: 'ad', fn: () => watchAd(() => afterSettle(true, base + extra)) }]
+      buttons: [{ label: `收摊  +¥${base}`, kind: 'pri', fn: () => afterSettle(true, base) }, { label: `{play}看广告多得 50%  +¥${base + extra}`, kind: 'ad', fn: () => watchAd(() => afterSettle(true, base + extra)) }]
     };
   } else {
     sfx.fail();
     P.store.set('pendingFail', String(r.inc));   // 记一笔:如果在这个界面直接退出,下次进来按未达标结算
     ui.modal = {
       title: '没达标', tone: 'bad', small: true, lines: [`营业额 ¥${r.inc},还差 ¥${r.T - r.inc}`].concat(topEarners()),
-      buttons: (r.encore ? [] : [{ label: '▶ 看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }])
+      buttons: (r.encore ? [] : [{ label: '{play}看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }])
         .concat([{ label: '认了(失去一颗心)', kind: 'sec', fn: () => afterSettle(false, r.inc) }])
     };
   }
@@ -277,15 +313,15 @@ function afterSettle(ok, gain) {
     } else if (res === 'perk') perkModal();
     else if (res === 'over') ui.modal = {
       title: '交不起摊位费', tone: 'bad', lines: [`止步第 ${night} 晚`, `历史最佳:撑过 ${prof.best} 晚`],
-      buttons: (G.S.revived ? [] : [{ label: '▶ 看广告续租一晚', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.revive(); }) }])
+      buttons: (G.S.revived ? [] : [{ label: '{play}看广告续租一晚', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.revive(); }) }])
         .concat(night > 1 ? [shareBtn(night - 1)] : [], [{ label: '重新开始', kind: 'sec', fn: restart }])
     };
   };
-  if (fresh.length) { sfx.merge(); ui.modal = { title: '新摊位解锁!', tone: 'ok', small: true, lines: fresh.map(u => `${DEF[u.id].e} ${DEF[u.id].n}:${DEF[u.id].d}`).concat(['从现在起会出现在进货里']), buttons: [{ label: '太好了', kind: 'pri', fn: go }] }; }
+  if (fresh.length) { sfx.merge(); ui.modal = { title: '新摊位解锁!', tone: 'ok', small: true, lines: fresh.map(u => `{stall_${u.id}}${DEF[u.id].n}:${DEF[u.id].d}`).concat(['从现在起会出现在进货里']), buttons: [{ label: '太好了', kind: 'pri', fn: go }] }; }
   else go();
 }
 function perkModal() {
-  ui.modal = { title: '选一条经营秘诀', perks: L.perkChoices().map(p => ({ p, fn: () => { L.takePerk(p); ui.modal = null; sfx.merge(); } })), buttons: [{ label: '▶ 看广告换一批', kind: 'ad', fn: () => watchAd(perkModal) }] };
+  ui.modal = { title: '选一条经营秘诀', perks: L.perkChoices().map(p => ({ p, fn: () => { L.takePerk(p); ui.modal = null; sfx.merge(); } })), buttons: [{ label: '{play}看广告换一批', kind: 'ad', fn: () => watchAd(perkModal) }] };
 }
 function restart() { if (G.S.arena) L.exitArena(); L.newGame(); resetUi(); }
 function helpModal() {
@@ -320,14 +356,14 @@ function stallModal(id) {
 }
 function perkListModal() {
   const own = PERKS.filter(p => L.perk(p.k)); if (!own.length) return helpModal();
-  ui.modal = { title: '已有的经营秘诀', small: true, lines: own.map(p => `${p.e} ${p.n}${L.perk(p.k) > 1 ? ' ×' + L.perk(p.k) : ''}:${p.d}`), buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }] };
+  ui.modal = { title: '已有的经营秘诀', small: true, lines: own.map(p => `{perk_${p.k}}${p.n}${L.perk(p.k) > 1 ? ' ×' + L.perk(p.k) : ''}:${p.d}`), buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }] };
 }
 
 // ---------- 绘制:场景 ----------
 // 用地面贴图铺满一块矩形;没有这张贴图时返回 false,由调用方画纯色。贴图按四分之一大小平铺,纹理才不会太粗
-function tiled(name, x, y, w, h) {
+function tiled(name, x, y, w, h, k = .25) {
   const im = A.image(name); if (!im) return false; if (!im._pat) im._pat = ctx.createPattern(im, 'repeat');
-  ctx.save(); ctx.scale(.25, .25); ctx.fillStyle = im._pat; ctx.fillRect(x * 4, y * 4, w * 4, h * 4); ctx.restore(); return true;
+  ctx.save(); ctx.scale(k, k); ctx.fillStyle = im._pat; ctx.fillRect(x / k, y / k, w / k, h / k); ctx.restore(); return true;
 }
 function drawScene() {
   const l = LAY, S = G.S, d = ui.dark, day = S.phase === 'day', sel = ui.sel, pulse = .5 + .5 * Math.sin(ui.t * 5);
@@ -363,9 +399,13 @@ function drawScene() {
     }
     if (day) hit(p.x, p.y, p.w, p.h, () => tapPlot(c, r));
   }
-  // 街口牌楼
-  A.rr(ctx, l.streetX - 4, l.gridY - 30, l.sw + 8, 20, 6); ctx.fillStyle = '#b8322a'; ctx.fill();
-  ctx.fillStyle = '#e25a40'; ctx.fillRect(l.streetX - 4, l.gridY - 30, l.sw + 8, 4); txt('夜 市', l.streetX + l.sw / 2, l.gridY - 19, 12, '#ffe6a0', 'center', true);
+  // 街口牌楼:有 gate.png 就画图(2:1,横匾留空,字由这里写在横匾的位置),没有就画一道红横梁
+  const gate = A.image('gate'), gcx = l.streetX + l.sw / 2;
+  if (gate) { const gh = 36, gw = gh * gate.width / gate.height; ctx.drawImage(gate, gcx - gw / 2, l.gridY - 6 - gh, gw, gh); txt('夜 市', gcx, l.gridY - 6 - gh * GATE_TEXT_Y, 11, '#ffe6a0', 'center', true); }
+  else {
+    A.rr(ctx, l.streetX - 4, l.gridY - 30, l.sw + 8, 20, 6); ctx.fillStyle = '#b8322a'; ctx.fill();
+    ctx.fillStyle = '#e25a40'; ctx.fillRect(l.streetX - 4, l.gridY - 30, l.sw + 8, 4); txt('夜 市', gcx, l.gridY - 19, 12, '#ffe6a0', 'center', true);
+  }
   A.glow(ctx, l.streetX + l.sw / 2, l.gridY - 20, 50, '255,120,70', .12 + .2 * d);
   // 摊位(逐排绘制,前排遮挡后排)与靠街的地面光
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -443,7 +483,7 @@ function drawHUD() {
     else txt(S.daily ? `今日主题:${L.themeOf(S.day).d}` : S.rival ? '营业额超过擂主就算赢' : '摆出最高营业额,再发给好友来挑战', 12, py, 11, WARM);
   } else {
     const own = PERKS.filter(p => L.perk(p.k));
-    if (own.length) { let x = 12; txt('秘诀', x, py, 11, WARM); x += 30; for (const p of own) { if (x > W - 186) break; const s = p.e + (L.perk(p.k) > 1 ? '×' + L.perk(p.k) : ''); txt(s, x, py, 13); x += ctx.measureText(s).width + 6; } }
+    if (own.length) { let x = 12; txt('秘诀', x, py, 11, WARM); x += 30; for (const p of own) { if (x > W - 186) break; drawToken('perk_' + p.k, x + 9, py, 18, TXT); x += 20; if (L.perk(p.k) > 1) { const s = '×' + L.perk(p.k); txt(s, x, py, 11, TXT, 'left', true); x += ctx.measureText(s).width; } x += 4; } }
     else txt('每晚达标后,可选一条经营秘诀', 12, py, 11, WARM);
     hit(0, py - 12, W - 164, 24, perkListModal);
     if (S.phase === 'day') {
@@ -459,7 +499,8 @@ function drawHUD() {
 function drawPanel() {
   const l = LAY, S = G.S, y = l.panelY;
   // 底板:一块深色木板,顶上一道亮边,几道木纹
-  ctx.fillStyle = WOOD_D; ctx.fillRect(0, y, W, l.panelH + 40); ctx.fillStyle = INK; ctx.fillRect(0, y, W, 3); ctx.fillStyle = WOOD; ctx.fillRect(0, y + 3, W, 2);
+  if (!tiled('tile_wood', 0, y, W, l.panelH + 40, .5)) { ctx.fillStyle = WOOD_D; ctx.fillRect(0, y, W, l.panelH + 40); }
+  ctx.fillStyle = INK; ctx.fillRect(0, y, W, 3); ctx.fillStyle = WOOD; ctx.fillRect(0, y + 3, W, 2);
   ctx.fillStyle = 'rgba(0,0,0,.16)'; for (const yy of [58, 116, 166]) ctx.fillRect(0, y + yy, W, 1.5);
   if (S.phase === 'day') {
     // 说明条:一张纸签
@@ -495,11 +536,11 @@ function drawPanel() {
     // 按钮
     if (S.arena) {
       if (S.refLeft > 0) btn(10, y + 170, 84, 40, `换货 ×${S.refLeft}`, 'sec', () => { L.refresh(); ui.sel = null; sfx.tap(); });
-      else btn(10, y + 170, 84, 40, '▶ 换货+4', 'ad', () => watchAd(() => { ui.modal = null; L.addRefresh(4); }));
+      else btn(10, y + 170, 84, 40, '{play}换货+4', 'ad', () => watchAd(() => { ui.modal = null; L.addRefresh(4); }));
       btn(100, y + 170, 84, 40, '退出擂台', 'sec', leaveArena);
     } else {
       btn(10, y + 170, 84, 40, `换货 ¥${L.refCost()}`, 'sec', () => { if (L.refresh(false) === 'nomoney') { sfx.bad(); toast('钱不够'); } else { ui.sel = null; sfx.tap(); } });
-      btn(100, y + 170, 84, 40, '▶ 免费换', 'ad', () => watchAd(() => { ui.modal = null; L.refresh(true); ui.sel = null; }));
+      btn(100, y + 170, 84, 40, '{play}免费换', 'ad', () => watchAd(() => { ui.modal = null; L.refresh(true); ui.sel = null; }));
     }
     btn(190, y + 170, 175, 40, '开张营业', 'pri', goNight);
   } else {
@@ -537,7 +578,10 @@ function drawModal() {
   ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(.86 + .14 * e, .86 + .14 * e); ctx.translate(-W / 2, -H / 2); ctx.globalAlpha = m.a;
   // 一张大纸牌,顶上一条色带写标题:达标是金色,没达标是灰褐色,其余是红色
   plate(x, y, w, h, PAPER, 10, 5);
-  ctx.save(); A.rr(ctx, x + 1, y + 1, w - 2, h - 2, 9); ctx.clip(); ctx.fillStyle = m.tone === 'ok' ? '#e3a72f' : m.tone === 'bad' ? BROWN : RED; ctx.fillRect(x, y, w, 44); ctx.fillStyle = INK; ctx.fillRect(x, y + 44, w, 2); ctx.restore();
+  // 有布横幅的图(ui_ribbon_*)就把横幅压在纸牌顶上,左右各探出 8
+  if (!A.nine(ctx, 'ui_ribbon_' + (m.tone === 'ok' ? 'gold' : m.tone === 'bad' ? 'gray' : 'red'), x - 8, y - 6, w + 16, 56, 14)) {
+    ctx.save(); A.rr(ctx, x + 1, y + 1, w - 2, h - 2, 9); ctx.clip(); ctx.fillStyle = m.tone === 'ok' ? '#e3a72f' : m.tone === 'bad' ? BROWN : RED; ctx.fillRect(x, y, w, 44); ctx.fillStyle = INK; ctx.fillRect(x, y + 44, w, 2); ctx.restore();
+  }
   txt(m.title, W / 2, y + 23, 18, m.tone === 'ok' ? INK : PAPER, 'center', true);
   let cy = y + 70;
   for (const s of lines) { txt(s, m.small ? x + 24 : W / 2, cy, m.small ? 12.5 : 14, INK, m.small ? 'left' : 'center'); cy += m.small ? 21 : lh; }
@@ -558,7 +602,7 @@ function drawModal() {
   }
   for (const pk of m.perks || []) {
     plate(x + 16, cy, w - 32, 56, '#fff5df', 7, 2);
-    ctx.font = '26px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(pk.p.e, x + 44, cy + 29);
+    drawToken('perk_' + pk.p.k, x + 44, cy + 28, 36, INK);
     txt(pk.p.n + (L.perk(pk.p.k) ? `(已有 ${L.perk(pk.p.k)})` : ''), x + 72, cy + 19, 14, RED, 'left', true); txt(pk.p.d, x + 72, cy + 39, 11.5, INK);
     hit(x + 16, cy, w - 32, 58, pk.fn); cy += 66;
   }
@@ -589,6 +633,13 @@ const TUT = [
 function startTut() { ui.tut = { step: 0, skip: null }; G.S.shop = ['kebab', 'tea', 'lamp', 'candy'].map(id => ({ id, sold: false })); }
 function endTut() { ui.tut = null; P.store.set('tut', '1'); persist(); }
 function nextTut() { ui.tut.step++; ui.tut.skip = null; if (ui.tut.step >= TUT.length) endTut(); }
+// 引导的指示箭头:金色粗箭头,up 为 true 时朝上指
+function pointer(x, y, up) {
+  const k = up ? 1 : -1; ctx.beginPath();
+  ctx.moveTo(x, y - 13 * k); ctx.lineTo(x + 11, y - 1 * k); ctx.lineTo(x + 4.5, y - 1 * k); ctx.lineTo(x + 4.5, y + 13 * k);
+  ctx.lineTo(x - 4.5, y + 13 * k); ctx.lineTo(x - 4.5, y - 1 * k); ctx.lineTo(x - 11, y - 1 * k); ctx.closePath();
+  ctx.fillStyle = GOLD; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+}
 function drawTut() {
   const t = ui.tut; if (!t || ui.modal) return; const st = TUT[t.step];
   if (st.passive && G.S.phase !== 'night') return;
@@ -599,13 +650,14 @@ function drawTut() {
     const x0 = r.x - 4, y0 = r.y - 4, x1 = r.x + r.w + 4, y1 = r.y + r.h + 4, pulse = .5 + .5 * Math.sin(ui.t * 6), below = r.y + r.h / 2 < H / 2, bob = Math.sin(ui.t * 6) * 4;
     ctx.fillStyle = 'rgba(5,4,12,.68)'; ctx.fillRect(0, 0, W, y0); ctx.fillRect(0, y1, W, H - y1); ctx.fillRect(0, y0, x0, y1 - y0); ctx.fillRect(x1, y0, W - x1, y1 - y0);
     A.rr(ctx, x0, y0, x1 - x0, y1 - y0, 12); ctx.strokeStyle = `rgba(255,201,74,${.6 + .4 * pulse})`; ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.font = '26px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
-    ctx.fillText(below ? '👆' : '👇', r.x + r.w / 2, below ? y1 + 20 + bob : y0 - 20 - bob);
+    pointer(r.x + r.w / 2, below ? y1 + 20 + bob : y0 - 20 - bob, below);
     by = below ? y1 + 42 : y0 - 42 - bh;
   } else if (st.passive) by = LAY.panelY - bh - 14;   // 夜晚的提示贴在面板上方,不挡街道
   else { ctx.fillStyle = 'rgba(5,4,12,.68)'; ctx.fillRect(0, 0, W, H); by = H * .36; }
-  A.rr(ctx, bx, by + 4, bw, bh, 14); ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fill();
-  A.rr(ctx, bx, by, bw, bh, 14); ctx.fillStyle = PAPER; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+  if (!A.nine(ctx, 'ui_paper', bx, by, bw, bh + 4, 14)) {
+    A.rr(ctx, bx, by + 4, bw, bh, 14); ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fill();
+    A.rr(ctx, bx, by, bw, bh, 14); ctx.fillStyle = PAPER; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+  }
   lines.forEach((s, i) => txt(s, bx + 18, by + 23 + i * 21, 13.5, '#3a2410', 'left', true));
   if (st.any) txt('点任意位置继续', W / 2, by + bh - 15, 11, '#a08660', 'center');
   if (!st.passive) { txt('跳过', bx + bw - 14, by + 14, 11, '#a08660', 'right'); t.skip = { x: bx + bw - 52, y: by - 4, w: 56, h: 30 }; }
@@ -675,7 +727,7 @@ if (pendingFail) {
 }
 ui.money = G.S.money;
 if (!hadSave && P.store.get('tut') !== '1') startTut();   // 第一次玩:走新手引导
-P.initShare(() => ({ title: '夜市一条街:来我的夜市逛逛' }));
+P.initShare(() => Object.assign({ title: '夜市一条街:来我的夜市逛逛' }, A.image('share_cover') ? { imageUrl: 'assets/share_cover.jpg' } : {}));   // 有分享封面图就用它,没有时微信自动截当前画面
 P.onChallenge(str => { if (str === ui.lastAr) return; ui.lastAr = str; const r = L.decodeArena(str); if (r) ui.pendingRival = r; });
 // 调试入口:浏览器里挂在 window 上;自动化测试(模拟微信环境)时挂在全局。正式的微信环境里不暴露
 const debugApi = { L, ui, G, P, tapPlot, tapCard, goNight, enterArena, leaveArena, togglePeek, tick, startDaily, challengeModal, codexModal, stallModal, prof, today };

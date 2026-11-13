@@ -17,6 +17,15 @@
 
   地面      tile_street.png(街面)、tile_walk.png(摊位区地面),要能无缝平铺
 
+  界面素材(详见 night-market-game/美术规格与出图提示词.md 第 11 节)
+    图标    icon_coin / icon_heart / icon_heart_empty / medal_1 / medal_2 / medal_3
+            perk_more / perk_big / perk_back / perk_price / perk_shout / perk_last
+            perk_first / perk_rich / perk_cheap / perk_land / perk_tip
+    底图    ui_btn_red / ui_btn_green / ui_btn_paper / ui_paper / ui_wood
+            ui_ribbon_red / ui_ribbon_gold / ui_ribbon_gray
+    其他    tile_wood(底部面板木板,要能无缝平铺)、gate(街口牌楼)
+            share_cover(转发封面)、app_icon(小游戏图标,不进游戏包,输出到 上架素材/)
+
 原图要求:
 
   - 背景是纯色平涂,不要渐变、暗角、地面投影(否则抠不干净,脚本会给出提醒)
@@ -25,5 +34,6 @@
   - 已经是透明底的 PNG 可以直接放,脚本会跳过抠图
 
 运行后看一眼 _检查图.png:所有摊位按游戏里的实际大小排在一起,检查大小、角度、亮度是否一致。
+有界面素材时还会生成 _检查图_界面.png:图标缩小后的样子、底图拉伸后的样子。
 
 想撤掉某张图:把 art_raw 里的原图和 night-market-game/assets 里的同名文件都删掉,再运行一次脚本。
