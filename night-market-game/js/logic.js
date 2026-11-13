@@ -90,7 +90,49 @@ export const EVENTS = [
   { k: 'payday', n: '发工资', d: '每位顾客多买一次', cap: 1 },
   { k: 'blogger', n: '美食博主探店', d: c => `${CAT_N[c]}售价 +80%` },
   { k: 'late', n: '夜宵潮', d: '街尾三排售价 +40%,街口三排 -20%' },
+  // 下面三种改变的是「来的是什么客人」,效果在 newCust 和 trySell 里
+  { k: 'kids', n: '亲子夜', d: '四成顾客是小孩,只买甜品和玩具,但爱掏钱' },
+  { k: 'couple', n: '情侣夜', d: '一半顾客是情侣,每单付两份,最多买两次' },
+  { k: 'worker', n: '加班夜', d: '顾客一来就口渴,第一杯饮品收入翻倍' },
 ];
+
+// 招牌搭配:街同一侧、上下紧挨着的两个靠街摊位凑成特定组合时触发,加成直接算进售价和吸引力,白天在名牌上就能看到。
+// a、b: 两边各自可以是哪些摊位;order 为 true 时 a 必须在靠街口的一边(顾客先路过 a);
+// fa、fb: 给 a、b 的加成,p 是售价、a 是吸引力,都是增加的比例
+export const COMBOS = [
+  { k: 'bbqtea', n: '撸串配饮料', a: ['kebab'], b: ['tea', 'lemon'], order: true, fb: { a: .25 }, d: '烤串后面紧挨着饮品:饮品吸引力 +25%' },
+  { k: 'meal', n: '管饱套餐', a: ['kebab'], b: ['rice'], order: true, fb: { a: .25 }, d: '烤串后面紧挨着炒饭:炒饭吸引力 +25%' },
+  { k: 'dessert', n: '饭后甜点', a: ['rice'], b: ['candy', 'ice'], order: true, fb: { p: .3 }, d: '炒饭后面紧挨着甜品:甜品售价 +30%' },
+  { k: 'sweet', n: '甜蜜蜜', a: ['candy'], b: ['ice'], fa: { p: .3 }, fb: { p: .3 }, d: '糖葫芦挨着冰粉:两个都售价 +30%' },
+  { k: 'trend', n: '潮人街', a: ['phone'], b: ['ring', 'balloon'], fa: { a: .5 }, d: '手机壳挨着套圈或气球:手机壳吸引力 +50%' },
+  { k: 'stink', n: '重口味', a: ['tofu'], b: ['crayfish'], fa: { p: .25 }, fb: { p: .25 }, d: '臭豆腐挨着小龙虾:两个都售价 +25%' },
+  { k: 'drinks', n: '饮品站', a: ['tea'], b: ['lemon'], fa: { p: .25 }, fb: { p: .25 }, d: '奶茶挨着柠檬水:两个都售价 +25%' },
+  { k: 'relief', n: '解腻套餐', a: ['rice'], b: ['lemon'], order: true, fb: { p: 1 }, d: '炒饭后面紧挨着柠檬水:柠檬水售价翻倍' },
+  { k: 'play', n: '游乐角', a: ['ring'], b: ['balloon'], fa: { a: .25 }, fb: { a: .25 }, d: '套圈挨着气球:两个都吸引力 +25%' },
+  { k: 'icefire', n: '冰火两重天', a: ['crayfish'], b: ['ice'], fa: { p: .3 }, fb: { p: .3 }, d: '小龙虾挨着冰粉:两个都售价 +30%' },
+];
+// up 在靠街口的一边、down 紧跟其后:返回这一对凑成的搭配,每项是 { c: 搭配, a, b }
+function pairCombos(up, down) {
+  const out = [];
+  for (const c of COMBOS) {
+    if (c.a.indexOf(up.id) >= 0 && c.b.indexOf(down.id) >= 0) out.push({ c, a: up, b: down });
+    else if (!c.order && c.b.indexOf(up.id) >= 0 && c.a.indexOf(down.id) >= 0) out.push({ c, a: down, b: up });
+  }
+  return out;
+}
+const frontAt = (c, r) => { const s = stallAt(c, r); return s && !DEF[s.id].sup ? s : null; };
+// 场上现在生效的所有搭配
+export function activeCombos() {
+  const out = [];
+  for (const s of G.S.stalls) { if (!isFront(s.c) || DEF[s.id].sup) continue; const t = frontAt(s.c, s.r + 1); if (t) out.push(...pairCombos(s, t)); }
+  return out;
+}
+// 某个摊位参与的搭配(和上家、下家各看一次)
+function combosAt(s) {
+  if (!isFront(s.c)) return [];
+  const up = frontAt(s.c, s.r - 1), down = frontAt(s.c, s.r + 1);
+  return (up ? pairCombos(up, s) : []).concat(down ? pairCombos(s, down) : []);
+}
 const CAT_N = { food: '小吃', drink: '饮品', sweet: '甜品', game: '玩具', goods: '杂货' };
 const EVENT_CHANCE = 0.6;
 export const eventOf = () => { const e = G.S.event; return e ? EVENTS.find(x => x.k === e.k) : null; };
@@ -114,16 +156,18 @@ export function restore(d) { G.S = d; G.N = null; for (const s of d.stalls) uid 
 // 每日挑战:擂台的一个变体。每天一个主题(一组现成的经营秘诀,外加可选的预算和客流),所有人当天进到的货完全相同。
 // base 是自动试玩在这个主题下的营业额中位数,奖牌线按它的倍数定
 export const DAILY = [
-  { k: 'hot', n: '网红之夜', d: '客流多 12 人', perks: { more: 3 }, base: 1250 },
-  { k: 'eat', n: '大胃王之夜', d: '每位顾客最多买 5 次', perks: { big: 2 }, base: 910 },
-  { k: 'rich', n: '土豪之夜', d: '多来 6 位土豪,消费 ×3', perks: { rich: 3 }, base: 1470 },
-  { k: 'back', n: '回头客之夜', d: '75% 的顾客走到街尾会折返再逛一遍', perks: { back: 3 }, base: 840 },
-  { k: 'gift', n: '临别大促', d: '每位顾客的最后一单 ×3,第一单额外 +¥10', perks: { last: 2, first: 2 }, base: 1310 },
-  { k: 'tight', n: '精打细算', d: '预算只有 ¥250,但进货价打七折', perks: { cheap: 2 }, budget: 250, base: 680 },
-  { k: 'gold', n: '黄金地段', d: '所有售价 +45%,但客流只有 12 人', perks: { price: 3 }, cust: 12, base: 670 },
-  { k: 'rain', n: '雨夜', d: '客流少四分之一,小吃售价 +50%', perks: {}, event: { k: 'rain' }, base: 700 },
-  { k: 'fair', n: '庙会', d: '客流多四成,但每人少买一次', perks: {}, event: { k: 'fair' }, base: 830 },
-  { k: 'blog', n: '博主探店', d: '甜品售价 +80%', perks: {}, event: { k: 'blogger', cat: 'sweet' }, base: 850 },
+  { k: 'hot', n: '网红之夜', d: '客流多 12 人', perks: { more: 3 }, base: 1300 },
+  { k: 'eat', n: '大胃王之夜', d: '每位顾客最多买 5 次', perks: { big: 2 }, base: 960 },
+  { k: 'rich', n: '土豪之夜', d: '多来 6 位土豪,消费 ×3', perks: { rich: 3 }, base: 1550 },
+  { k: 'back', n: '回头客之夜', d: '75% 的顾客走到街尾会折返再逛一遍', perks: { back: 3 }, base: 880 },
+  { k: 'gift', n: '临别大促', d: '每位顾客的最后一单 ×3,第一单额外 +¥10', perks: { last: 2, first: 2 }, base: 1380 },
+  { k: 'tight', n: '精打细算', d: '预算只有 ¥250,但进货价打七折', perks: { cheap: 2 }, budget: 250, base: 710 },
+  { k: 'gold', n: '黄金地段', d: '所有售价 +45%,但客流只有 12 人', perks: { price: 3 }, cust: 12, base: 700 },
+  { k: 'rain', n: '雨夜', d: '客流少四分之一,小吃售价 +50%', perks: {}, event: { k: 'rain' }, base: 750 },
+  { k: 'fair', n: '庙会', d: '客流多四成,但每人少买一次', perks: {}, event: { k: 'fair' }, base: 860 },
+  { k: 'blog', n: '博主探店', d: '甜品售价 +80%', perks: {}, event: { k: 'blogger', cat: 'sweet' }, base: 900 },
+  { k: 'kids', n: '亲子夜', d: '四成顾客是小孩,只买甜品和玩具,但爱掏钱', perks: {}, event: { k: 'kids' }, base: 610 },
+  { k: 'couple', n: '情侣夜', d: '一半顾客是情侣,每单付两份,最多买两次', perks: {}, event: { k: 'couple' }, base: 1030 },
 ];
 export const themeOf = day => DAILY[day % DAILY.length];
 // 铜牌随手能拿;银牌约等于自动试玩里排前五分之一的成绩;金牌比自动试玩的最好成绩还高一截,要靠排顺序和搭配
@@ -173,6 +217,7 @@ export function newGame(who) {
   if (k === 'bbq') S.stalls.push({ uid: uid++, id: 'kebab', lvl: 1, c: 1, r: 0 });
   G.N = null; rollShop();
 }
+export const maxHearts = () => owner() === 'rich' ? 2 : 3;
 export const perk = k => G.S.perks[k] || 0;
 export const isFront = c => c === 1 || c === 2;
 export const stallAt = (c, r) => G.S.stalls.find(s => s.c === c && s.r === r);
@@ -217,6 +262,8 @@ export function statOf(s) {
   }
   pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price'));
   if (s.r >= ROWS - 2) pm *= 1 + 0.3 * perk('tail');
+  const seen = {};   // 招牌搭配:同一种搭配对一个摊位只算一次
+  for (const x of combosAt(s)) { if (seen[x.c.k]) continue; seen[x.c.k] = 1; const fx = x.a === s ? x.c.fa : x.c.fb; if (fx) { aMul += fx.a || 0; pm *= 1 + (fx.p || 0); } }
   const ow = owner();   // 摊主
   if (ow === 'bbq') pm *= d.cat === 'food' ? 1.15 : .85;
   if (ow === 'sweet') pm *= d.cat === 'drink' || d.cat === 'sweet' ? 1.25 : d.cat === 'food' ? .75 : 1;
@@ -262,12 +309,18 @@ function makeQueue(n, rich) { const q = []; for (let i = 0; i < n; i++) q.push(f
 function calcStats() { const m = new Map(); for (const s of G.S.stalls) if (isFront(s.c) && !DEF[s.id].sup) m.set(s.uid, statOf(s)); return m; }
 export function startNight() { G.S.phase = 'night'; return G.N = Object.assign({ queue: makeQueue(custCount(), 2 * perk('rich')), income: 0, encore: false, stats: calcStats() }, counters()); }
 export function encore() { G.N.encore = true; G.N.queue = makeQueue(6, 0); G.S.phase = 'night'; }
-export const newCust = rich => ({ buys: 0, thirsty: 0, full: false, happy: false, balloon: false, cats: [], rich });   // thirsty:下一杯饮品的倍数,0 是不渴
+// thirsty:下一杯饮品的倍数,0 是不渴。kid(小孩)、couple(情侣)由当晚的事件带来,土豪不会是这两种
+export const newCust = rich => {
+  const ev = G.S.event && G.S.event.k, r = Math.random();
+  return { buys: 0, thirsty: ev === 'worker' ? 2 : 0, full: false, happy: false, balloon: false, cats: [], rich, kid: !rich && ev === 'kids' && r < .4, couple: !rich && ev === 'couple' && r < .5 };
+};
+const capOf = c => c.couple ? Math.min(2, capN()) : capN();   // 这位顾客最多买几次
 function trySell(c, s, onSale) {
   const N = G.N, d = DEF[s.id], st = N.stats.get(s.uid); if (!st) return;
-  const cap = capN();
+  const cap = capOf(c);
+  if (c.kid && d.cat !== 'sweet' && d.cat !== 'game') return;
   if (!d.free && c.buys >= cap) return; if (d.cat === 'food' && c.full) return; if (s.id === 'ring' && c.happy) return; if (s.id === 'balloon' && c.balloon) return;
-  let a = st.a; if (s.id === 'phone' && c.happy) a *= 2; if (c.balloon) a *= 1.2; a = Math.min(.95, a);
+  let a = st.a; if (s.id === 'phone' && c.happy) a *= 2; if (c.balloon) a *= 1.2; if (c.kid) a *= 2; a = Math.min(.95, a);
   if (Math.random() > a) return;
   const f = { thirsty: 0, last: false };
   let amt = st.price + (s.id === 'ice' ? 3 * c.buys * st.pm : 0);
@@ -276,7 +329,7 @@ function trySell(c, s, onSale) {
   if (!d.free && c.buys + 1 >= cap && perk('last')) { amt *= 1 + perk('last'); f.last = true; }
   amt += st.flat; if (!d.free && c.buys === 0) amt += 5 * perk('first');
   if (c.cats.indexOf(d.cat) < 0) { amt *= 1 + 0.2 * perk('set'); c.cats.push(d.cat); }
-  if (c.rich) amt *= 3; amt = Math.round(amt);
+  if (c.couple) amt *= 2; if (c.rich) amt *= 3; amt = Math.round(amt);
   if (s.id === 'kebab') c.thirsty = Math.max(c.thirsty, 2); if (s.id === 'crayfish') c.thirsty = 3; if (s.id === 'rice') c.full = true; if (s.id === 'ring') c.happy = true;
   if (s.id === 'lemon') c.full = false; if (s.id === 'balloon') c.balloon = true;
   if (!d.free) { c.buys++; if (c.buys === cap) N.maxed++; }
@@ -284,7 +337,7 @@ function trySell(c, s, onSale) {
   N.income += amt; if (onSale) onSale(c, s, amt, f);
 }
 export function visit(c, r, onSale) { for (const col of Math.random() < .5 ? [1, 2] : [2, 1]) { const s = stallAt(col, r); if (s) trySell(c, s, onSale); } }
-export const wantsBack = c => !c.ret && c.buys < capN() && Math.random() < 0.25 * perk('back');
+export const wantsBack = c => !c.ret && c.buys < capOf(c) && Math.random() < 0.25 * perk('back');
 export function finishNight() {
   const S = G.S, T = target(), inc = G.N.income; S.phase = 'settle';
   return { ok: S.arena ? inc > T : inc >= T, inc, T, tip: Math.round(inc * 0.1 * perk('tip')), interest: Math.round(S.money * 0.1 * perk('save')), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
