@@ -1,0 +1,20 @@
+# 会话和编辑器的本地配置
+.claude/
+.vscode/
+.idea/
+
+# 微信开发者工具的个人设置(每个人不一样,不进仓库)
+project.private.config.json
+
+# 美术处理过程中的临时文件
+art_raw/_测试样例/
+art_raw/_检查图.png
+
+# 运行时产生的缓存
+__pycache__/
+*.pyc
+node_modules/
+
+# 系统文件
+.DS_Store
+Thumbs.db

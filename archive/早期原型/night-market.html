@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>夜市一条街 · 原型</title>
+<style>
+:root{--bg:#141627;--panel:#22263f;--plot:#2d3254;--front:#3a3f68;--lock:#191b2c;--line:#454b6b;--street:#0e0f1c;--txt:#f1f0fa;--dim:#9aa0c3;--gold:#ffc94a;--warm:#ff8e4f;--green:#5fd38d;--red:#ff6b6b;--blue:#6aa8ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;user-select:none}
+#app{max-width:420px;margin:0 auto;padding:10px 12px 24px;min-height:100vh}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.bar b{font-size:15px}.gold{color:var(--gold)}.dim{color:var(--dim);font-size:12px}
+.panel{background:var(--panel);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.sb{justify-content:space-between}
+.prog{height:14px;background:#0d0e18;border-radius:7px;overflow:hidden;margin-top:5px;position:relative}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--warm),var(--gold))}
+.prog span{position:absolute;inset:0;text-align:center;font-size:10px;line-height:14px}
+#grid{position:relative;margin:0 auto 8px;display:grid;gap:4px;overflow:hidden}
+.street{background:var(--street);border-radius:6px;border-left:2px dashed #2c3050;border-right:2px dashed #2c3050;display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:4px 0;color:#6b72a8;font-size:10px;white-space:nowrap}
+.p{background:var(--plot);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;cursor:pointer;border:2px solid transparent}
+.p.front{background:var(--front)}
+.p.lock{background:var(--lock);border:1px dashed var(--line);color:var(--dim);font-size:11px}
+.p.l2{border-color:var(--blue)}.p.l3{border-color:var(--gold)}
+.p .e{line-height:1.1}.p .s{font-size:9px;color:var(--dim);white-space:nowrap}.p .s.bad{color:var(--red)}
+.p .lv{position:absolute;right:3px;top:1px;font-size:9px;color:var(--gold)}
+.p.hit{animation:hit .25s}
+@keyframes hit{50%{transform:scale(1.12);background:#6a5a34}}
+.cust{position:absolute;font-size:20px;transform:translate(-50%,-50%);pointer-events:none;z-index:2}
+.pop{position:absolute;transform:translateX(-50%);color:var(--gold);font-weight:700;font-size:13px;pointer-events:none;z-index:3;animation:up .7s forwards;text-shadow:0 1px 2px #000}
+@keyframes up{to{transform:translate(-50%,-26px);opacity:0}}
+button{font:inherit;color:var(--txt);background:#3b4165;border:0;border-radius:8px;padding:8px 10px;cursor:pointer}
+button.pri{background:var(--warm);color:#2a1300;font-weight:700}
+button.ad{background:#2f6b4b}
+.shop{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+.card{background:#2c3158;border-radius:8px;padding:6px 8px;cursor:pointer;min-height:58px}
+.card.sold{opacity:.25}
+.card .t{display:flex;justify-content:space-between;font-size:13px}.card .d{font-size:11px;color:var(--dim)}
+#toast{position:fixed;left:50%;top:40%;transform:translateX(-50%);background:#000c;padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;white-space:nowrap}
+#mask{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:8;padding:16px}
+#mask .box{background:var(--panel);border-radius:12px;padding:16px;max-width:360px;width:100%;text-align:center}
+.perk{display:block;width:100%;text-align:left;margin:6px 0;background:#2c3158}
+h3{margin:0 0 8px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="bar"><b id="tNight"></b><span id="tHeart"></span><b class="gold" id="tMoney"></b></div>
+  <div class="dim" id="tPerks" style="margin-bottom:6px"></div>
+  <div class="panel"><div class="row sb"><b id="tTarget"></b><span class="dim" id="tFlow"></span></div>
+    <div class="prog"><i id="pBar"></i><span id="pTxt"></span></div></div>
+  <div id="grid"></div>
+  <div id="dayUI">
+    <div class="panel" id="hand"></div>
+    <div class="shop" id="shop"></div>
+    <div class="row" style="margin-bottom:8px"><button id="bRef">换一批货 -¥5</button><button class="ad" id="bRefAd">▶ 看广告免费换</button></div>
+    <button class="pri" id="bGo" style="width:100%;padding:12px">🏮 开张营业</button>
+    <p class="dim">玩法:顾客从街口走到街尾,路过<b>靠街</b>的摊位时可能消费。点进货卡片买入,点地块摆放;同名同级叠放即升级。里排适合放灯牌、冰柜这类支援摊,加成覆盖同侧周围一圈。摊位的<b>先后顺序</b>很重要:先烤串再奶茶,奶茶翻倍。</p>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="mask"><div class="box" id="box"></div></div>
+<script>
+// ---------- 数据 ----------
+const COLS=4,ROWS=6,LV=[1,2,4],MAXN=10,GAP=4;
+const TARGET=[40,80,170,350,620,1050,1600,2400,3300,4500];   // 按自动试玩的营业额分布校准
+const DEF={
+ kebab:{n:'烤串',e:'🍢',cat:'food',cost:20,p:6,a:.55,d:'吃完口渴:下一杯饮品收入×2'},
+ tofu:{n:'臭豆腐',e:'🥘',cat:'food',cost:15,p:5,a:.7,d:'很吸客,但周围非小吃摊吸引力-30%'},
+ rice:{n:'炒饭',e:'🍛',cat:'food',cost:30,p:12,a:.5,d:'单价高,但吃饱后不再买小吃'},
+ tea:{n:'奶茶',e:'🧋',cat:'drink',cost:20,p:5,a:.6,d:'饮品。口渴的顾客付双倍'},
+ candy:{n:'糖葫芦',e:'🍡',cat:'sweet',cost:15,p:4,a:.65,d:'甜品。便宜好卖'},
+ ice:{n:'冰粉',e:'🍧',cat:'sweet',cost:25,p:3,a:.5,d:'顾客之前每消费1次,售价+3。适合放街尾'},
+ ring:{n:'套圈',e:'🎯',cat:'game',cost:30,p:4,a:.45,free:1,d:'不占消费次数。玩后开心:之后消费+40%'},
+ phone:{n:'手机壳',e:'📱',cat:'goods',cost:35,p:14,a:.25,d:'单价高但冷门;开心的顾客吸引力翻倍'},
+ lamp:{n:'灯牌',e:'🏮',sup:1,cost:20,d:'支援:周围摊位吸引力+20%'},
+ fridge:{n:'冰柜',e:'🧊',sup:1,cost:25,d:'支援:周围饮品、甜品售价+50%'},
+ grill:{n:'炭炉',e:'🔥',sup:1,cost:25,d:'支援:周围小吃售价+40%'},
+ cat:{n:'招财猫',e:'🐱',sup:1,cost:35,d:'支援:周围摊位每卖一单额外+¥2'},
+};
+const PERKS=[
+ {k:'more',n:'📸 网红打卡',d:'每晚客流 +4 人'},{k:'big',n:'🍽️ 大胃王',d:'每位顾客消费次数上限 +1'},
+ {k:'back',n:'🔄 回头客',d:'25% 的顾客走到街尾后折返再逛一遍'},{k:'price',n:'💹 集体涨价',d:'所有售价 +15%'},
+ {k:'shout',n:'📣 吆喝',d:'所有摊位吸引力 +10%'},{k:'last',n:'🎁 临走再买',d:'每位顾客的最后一单收入翻倍'},
+ {k:'first',n:'🧧 开门红',d:'每位顾客的第一单额外 +¥5'},{k:'rich',n:'🤑 土豪光临',d:'每晚多来 2 位土豪,消费 ×3'},
+ {k:'cheap',n:'🤝 熟人价',d:'进货价 -15%'},{k:'land',n:'📜 地摊执照',d:'立即免费解锁 2 块地'},{k:'tip',n:'💵 小费',d:'每晚结算额外获得营业额的 10%'}];
+const PEOPLE=['🧑','👩','👨','🧒','👵','🧔','👧'];
+
+// ---------- 广告接口(原型为模拟;上线时换成 wx.createRewardedVideoAd) ----------
+function showRewardedAd(onReward){
+  let s=2; openBox(`<h3>模拟激励视频</h3><p id="adT">广告播放中… ${s}</p>`);
+  const t=setInterval(()=>{s--; if(s<=0){clearInterval(t);closeBox();onReward();} else $('adT').textContent=`广告播放中… ${s}`;},700);
+}
+
+// ---------- 状态 ----------
+let S,N,uid=1,G={}; const $=id=>document.getElementById(id);
+function newGame(){
+  S={night:1,hearts:3,money:60,stalls:[],hand:null,shop:[],perks:{},unlocked:new Set(),unlockN:0,revived:false,phase:'day'};
+  for(let r=0;r<2;r++)for(let c=0;c<COLS;c++)S.unlocked.add(c+','+r);
+  N=null;rollShop();render();
+}
+const perk=k=>S.perks[k]||0;
+const isFront=c=>c===1||c===2;
+const stallAt=(c,r)=>S.stalls.find(s=>s.c===c&&s.r===r);
+let INFL=1.4;                                   // 物价每晚上涨的倍率,防止后期钱花不完
+const infl=()=>Math.pow(INFL,S.night-1);
+const costOf=d=>Math.ceil(d.cost*infl()*Math.pow(0.85,perk('cheap')));
+const sellVal=s=>Math.floor(DEF[s.id].cost*Math.pow(2,s.lvl-1)/2);
+const unlockCost=()=>Math.ceil((10+5*S.unlockN)*infl());
+const refCost=()=>Math.ceil(5*infl());
+const custCount=()=>8+2*S.night+4*perk('more');
+const capN=()=>3+perk('big');
+function rollShop(){const ks=Object.keys(DEF);S.shop=[0,1,2,3].map(()=>({id:ks[Math.random()*ks.length|0],sold:false}))}
+function canUnlock(c,r){return !S.unlocked.has(c+','+r)&&[[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>S.unlocked.has((c+a)+','+(r+b)))}
+function around(s){const lo=s.c<2?0:2;return S.stalls.filter(o=>o!==s&&o.c>=lo&&o.c<=lo+1&&Math.abs(o.c-s.c)<=1&&Math.abs(o.r-s.r)<=1)}
+function statOf(s){const d=DEF[s.id];if(d.sup)return null;let aMul=1+0.1*perk('shout'),pm=1,flat=0;
+  for(const o of around(s)){
+    if(o.id==='lamp')aMul+=0.2*o.lvl;
+    if(o.id==='fridge'&&(d.cat==='drink'||d.cat==='sweet'))pm+=0.5*o.lvl;
+    if(o.id==='grill'&&d.cat==='food')pm+=0.4*o.lvl;
+    if(o.id==='cat')flat+=2*o.lvl;
+    if(o.id==='tofu'&&d.cat!=='food')aMul-=0.3;}
+  pm*=LV[s.lvl-1]*(1+0.15*perk('price'));
+  return {a:Math.max(.05,Math.min(.95,d.a*aMul)),price:d.p*pm,pm,flat}}
+
+// ---------- 渲染 ----------
+function toast(t){const e=$('toast');e.textContent=t;e.style.opacity=1;clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.opacity=0,1300)}
+function openBox(html){$('box').innerHTML=html;$('mask').style.display='flex'}
+function closeBox(){$('mask').style.display='none'}
+function renderTop(){
+  $('tNight').textContent=`第 ${S.night}/${MAXN} 晚`;$('tHeart').textContent='❤️'.repeat(S.hearts)+'🖤'.repeat(Math.max(0,3-S.hearts));
+  $('tMoney').textContent=`¥ ${S.money}`;
+  const ps=PERKS.filter(p=>perk(p.k)).map(p=>p.n+(perk(p.k)>1?'×'+perk(p.k):''));
+  $('tPerks').textContent=ps.length?'经营秘诀:'+ps.join('  '):'经营秘诀:暂无(每晚达标后三选一)';
+  const T=TARGET[S.night-1],inc=N?N.income:0;
+  $('tTarget').textContent=`今晚目标 ¥${T}`;$('tFlow').textContent=`客流 ${custCount()+2*perk('rich')} 人 · 每人最多消费 ${capN()} 次`;
+  $('pBar').style.width=Math.min(100,inc/T*100)+'%';$('pTxt').textContent=`营业额 ¥${inc}`;
+}
+function renderGrid(){
+  const W=Math.min(420,innerWidth)-24,cs=Math.min(74,Math.floor((W-4*GAP)/4.7)),sw=Math.floor(cs*0.7),rh=Math.round(cs*0.82),g=$('grid');
+  G={cs,sw,rh,H:ROWS*rh+(ROWS-1)*GAP,sx:2*cs+2*GAP+sw/2};
+  g.style.gridTemplateColumns=`${cs}px ${cs}px ${sw}px ${cs}px ${cs}px`;g.style.gridAutoRows=rh+'px';g.style.width=(4*cs+sw+4*GAP)+'px';
+  g.innerHTML=`<div class="street" style="grid-column:3;grid-row:1/span ${ROWS}"><span>街口 ↓</span><span>街尾</span></div>`;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const e=document.createElement('div'),k=c+','+r,s=stallAt(c,r);e.className='p'+(isFront(c)?' front':'');e.id='p'+c+'_'+r;
+    e.style.gridColumn=c<2?c+1:c+2;e.style.gridRow=r+1;
+    if(!S.unlocked.has(k)){e.className='p lock';if(canUnlock(c,r)&&S.phase==='day')e.textContent='+¥'+unlockCost()}
+    else if(s){const d=DEF[s.id],st=statOf(s);e.classList.add('l'+s.lvl);
+      const badge=d.sup?'支援':!isFront(c)?'<span class="s bad">不靠街</span>':`¥${Math.round(st.price)} · ${Math.round(st.a*100)}%`;
+      e.innerHTML=`<div class="e" style="font-size:${rh*0.46}px">${d.e}</div><div class="s">${badge}</div>${s.lvl>1?`<div class="lv">Lv${s.lvl}</div>`:''}`}
+    e.onclick=()=>tapPlot(c,r);g.appendChild(e)}
+}
+function render(){
+  renderTop();renderGrid();
+  $('dayUI').style.display=S.phase==='day'?'':'none';
+  if(S.phase!=='day')return;
+  const hd=$('hand');
+  if(S.hand){const d=DEF[S.hand.id];hd.innerHTML=`<div><b>手中:${d.e} ${d.n} Lv${S.hand.lvl}</b> <span class="dim">${d.d}</span></div>
+    <div class="row" style="margin-top:6px"><button id="bSell">退货 +¥${sellVal(S.hand)}</button><span class="dim">点地块摆放;点已有摊位可互换</span></div>`;
+    $('bSell').onclick=()=>{S.money+=sellVal(S.hand);S.hand=null;render()};
+  }else hd.innerHTML='<span class="dim">手中为空。点下方卡片进货,或点已摆的摊位拿起调整。摊位上的数字是「售价 · 吸引力」。</span>';
+  $('bRef').textContent=`换一批货 -¥${refCost()}`;
+  const sh=$('shop');sh.innerHTML='';
+  S.shop.forEach((s,i)=>{const d=DEF[s.id],c=document.createElement('div');c.className='card'+(s.sold?' sold':'');
+    c.innerHTML=`<div class="t"><b>${d.e} ${d.n}</b><span class="gold">¥${costOf(d)}</span></div><div class="d">${d.sup?'':`售价${d.p} · 吸引${Math.round(d.a*100)}%。`}${d.d}</div>`;
+    c.onclick=()=>buy(i);sh.appendChild(c)});
+}
+
+// ---------- 白天:进货与摆摊 ----------
+function buy(i){const s=S.shop[i],d=DEF[s.id];if(s.sold)return;if(S.hand)return toast('先把手里的摊位摆好或退货');
+  if(S.money<costOf(d))return toast('钱不够');S.money-=costOf(d);s.sold=true;S.hand={uid:uid++,id:s.id,lvl:1};render()}
+function tapPlot(c,r){if(S.phase!=='day')return;const k=c+','+r;
+  if(!S.unlocked.has(k)){if(!canUnlock(c,r))return;if(S.money<unlockCost())return toast('钱不够');S.money-=unlockCost();S.unlockN++;S.unlocked.add(k);return render()}
+  const at=stallAt(c,r);
+  if(S.hand){
+    if(at&&at.id===S.hand.id&&at.lvl===S.hand.lvl){if(at.lvl>=3)return toast('已是最高级');at.lvl++;S.hand=null;toast('升级!');return render()}
+    S.hand.c=c;S.hand.r=r;S.stalls.push(S.hand);
+    if(at){S.stalls=S.stalls.filter(o=>o!==at);S.hand=at}else S.hand=null;
+    return render()}
+  if(at){S.stalls=S.stalls.filter(o=>o!==at);S.hand=at;render()}
+}
+$('bRef').onclick=()=>{if(S.money<refCost())return toast('钱不够');S.money-=refCost();rollShop();render()};
+$('bRefAd').onclick=()=>showRewardedAd(()=>{rollShop();render()});
+$('bGo').onclick=()=>{if(S.hand)return toast('手里还有摊位,先摆好或退货');
+  if(!S.stalls.some(s=>isFront(s.c)&&!DEF[s.id].sup))return toast('至少要有一个靠街的售卖摊位');startNight()};
+
+// ---------- 夜晚:客流结算 ----------
+function calcStats(){const m=new Map();for(const s of S.stalls)if(isFront(s.c)&&!DEF[s.id].sup)m.set(s.uid,statOf(s));return m}
+function makeQueue(n,rich){const q=[];for(let i=0;i<n;i++)q.push(false);for(let i=0;i<rich;i++)q.push(true);return q.sort(()=>Math.random()-0.5)}
+const newCust=rich=>({buys:0,thirsty:false,full:false,happy:false,rich});
+function trySell(c,s){const d=DEF[s.id],st=N.stats.get(s.uid);if(!st)return;const cap=capN();
+  if(!d.free&&c.buys>=cap)return;if(d.cat==='food'&&c.full)return;if(s.id==='ring'&&c.happy)return;
+  let a=st.a;if(s.id==='phone'&&c.happy)a=Math.min(.95,a*2);
+  if(Math.random()>a)return;
+  let amt=st.price+(s.id==='ice'?3*c.buys*st.pm:0);
+  if(d.cat==='drink'&&c.thirsty){amt*=2;c.thirsty=false}
+  if(c.happy)amt*=1.4;
+  if(!d.free&&c.buys+1>=cap)amt*=1+perk('last');
+  amt+=st.flat;if(!d.free&&c.buys===0)amt+=5*perk('first');
+  if(c.rich)amt*=3;amt=Math.round(amt);
+  if(s.id==='kebab')c.thirsty=true;if(s.id==='rice')c.full=true;if(s.id==='ring')c.happy=true;
+  if(!d.free)c.buys++;
+  N.income+=amt;if(c.el)pop(s,'+¥'+amt);
+}
+function visit(c,r){for(const col of Math.random()<.5?[1,2]:[2,1]){const s=stallAt(col,r);if(s)trySell(c,s)}}
+const wantsBack=c=>!c.ret&&c.buys<capN()&&Math.random()<0.25*perk('back');
+function pop(s,txt){const cell=$('p'+s.c+'_'+s.r),e=document.createElement('div');e.className='pop';e.textContent=txt;
+  e.style.left=(cell.offsetLeft+cell.offsetWidth/2)+'px';e.style.top=(cell.offsetTop+2)+'px';$('grid').appendChild(e);setTimeout(()=>e.remove(),700);
+  cell.classList.remove('hit');void cell.offsetWidth;cell.classList.add('hit')}
+const rowY=r=>r*(G.rh+GAP)+G.rh/2;
+function startNight(){S.phase='night';N={queue:makeQueue(custCount(),2*perk('rich')),active:[],income:0,spawn:0,encore:false,last:performance.now(),stats:calcStats()};
+  N.gap=Math.max(0.15,5/N.queue.length);render();requestAnimationFrame(frame)}
+function frame(now){
+  if(S.phase!=='night')return;
+  const dt=Math.min(0.1,(now-N.last)/1000);N.last=now;N.spawn-=dt;
+  if(N.queue.length&&N.spawn<=0){N.spawn=N.gap;const c=newCust(N.queue.pop());c.el=document.createElement('div');c.el.className='cust';
+    c.el.textContent=c.rich?'🤑':PEOPLE[Math.random()*PEOPLE.length|0];c.x=G.sx+(Math.random()-.5)*G.sw*0.5;c.y=-12;c.dir=1;c.next=0;
+    c.el.style.left=c.x+'px';$('grid').appendChild(c.el);N.active.push(c)}
+  const sp=G.H/2.4;
+  for(const c of N.active){c.y+=c.dir*sp*dt;
+    while(c.next>=0&&c.next<ROWS&&(c.dir>0?c.y>=rowY(c.next):c.y<=rowY(c.next))){visit(c,c.next);c.next+=c.dir}
+    if(c.dir>0&&c.y>G.H+12){if(wantsBack(c)){c.ret=true;c.dir=-1;c.next=ROWS-1}else c.done=true}
+    else if(c.dir<0&&c.y<-12)c.done=true;
+    c.el.style.top=c.y+'px';if(c.done)c.el.remove()}
+  N.active=N.active.filter(c=>!c.done);renderTop();
+  if(!N.queue.length&&!N.active.length)return endNight();
+  requestAnimationFrame(frame);
+}
+function endNight(){
+  S.phase='settle';const T=TARGET[S.night-1],inc=N.income;
+  if(inc>=T){const tip=Math.round(inc*0.1*perk('tip')),base=inc+tip;
+    openBox(`<h3>✅ 达标!</h3><p>营业额 ¥${inc} / 目标 ¥${T}${tip?`<br>小费 +¥${tip}`:''}</p><div class="row" style="justify-content:center"><button class="pri" id="rOk">收摊 +¥${base}</button><button class="ad" id="rAd">▶ 看广告再得 50%</button></div>`);
+    $('rOk').onclick=()=>afterNight(true,base);$('rAd').onclick=()=>showRewardedAd(()=>afterNight(true,Math.round(base*1.5)));
+  }else{
+    openBox(`<h3>❌ 未达标</h3><p>营业额 ¥${inc},还差 ¥${T-inc}</p><div class="row" style="justify-content:center">${N.encore?'':'<button class="ad" id="rEnc">▶ 看广告加场(再来 6 位顾客)</button>'}<button id="rOk">认了(失去一颗心)</button></div>`);
+    if(!N.encore)$('rEnc').onclick=()=>showRewardedAd(()=>{N.encore=true;N.queue=makeQueue(6,0);N.spawn=0;N.gap=0.4;N.last=performance.now();S.phase='night';requestAnimationFrame(frame)});
+    $('rOk').onclick=()=>afterNight(false,inc);}
+}
+function afterNight(ok,gain){
+  S.money+=gain;
+  if(ok){if(S.night>=MAXN)return openBox(`<h3>🏆 夜市之王!</h3><p>你撑过了 ${MAXN} 个夜晚,手握 ¥${S.money}。</p><button class="pri" onclick="closeBox();newGame()">再来一局</button>`);
+    S.night++;return pickPerk()}
+  S.hearts--;
+  if(S.hearts<=0){openBox(`<h3>💸 交不起摊位费</h3><p>止步第 ${S.night} 晚</p><div class="row" style="justify-content:center">${S.revived?'':'<button class="ad" id="rRev">▶ 看广告续租</button>'}<button id="rNew">重新开始</button></div>`);
+    if(!S.revived)$('rRev').onclick=()=>showRewardedAd(()=>{S.revived=true;S.hearts=1;nextDay(false)});
+    $('rNew').onclick=()=>{closeBox();newGame()};return}
+  nextDay(false);
+}
+function nextDay(alreadyAdvanced){if(!alreadyAdvanced&&S.night<MAXN)S.night++;closeBox();S.phase='day';N=null;rollShop();render()}
+function pickPerk(){
+  const pool=[...PERKS].sort(()=>Math.random()-0.5).slice(0,3);
+  openBox(`<h3>选择一条经营秘诀</h3>${pool.map((p,i)=>`<button class="perk" data-i="${i}"><b>${p.n}</b><br><span class="dim">${p.d}</span></button>`).join('')}<button class="ad" id="rRe">▶ 看广告换一批</button>`);
+  $('box').querySelectorAll('.perk').forEach(b=>b.onclick=()=>{const p=pool[b.dataset.i];S.perks[p.k]=perk(p.k)+1;
+    if(p.k==='land'){let n=2;for(let r=0;r<ROWS&&n;r++)for(let c=0;c<COLS&&n;c++)if(canUnlock(c,r)){S.unlocked.add(c+','+r);n--}}
+    nextDay(true)});
+  $('rRe').onclick=()=>showRewardedAd(pickPerk);
+}
+// 调试用:不播动画,估算当前摆法的平均营业额
+function quickSim(k=300){const keep=N;let sum=0;
+  for(let i=0;i<k;i++){N={income:0,stats:calcStats()};
+    for(const rich of makeQueue(custCount(),2*perk('rich'))){const c=newCust(rich);for(let r=0;r<ROWS;r++)visit(c,r);
+      if(wantsBack(c))for(let r=ROWS-1;r>=0;r--)visit(c,r)}
+    sum+=N.income}
+  N=keep;return Math.round(sum/k)}
+addEventListener('resize',()=>S&&S.phase==='day'&&render());
+newGame();
+</script>
+</body>
+</html>

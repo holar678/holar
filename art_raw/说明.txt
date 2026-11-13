@@ -1,0 +1,29 @@
+把美术交来的原图放在这个文件夹里,然后在上一级文件夹运行:
+
+    python tools/process_art.py
+
+脚本会自动抠图、裁切、对齐、压缩,输出到 night-market-game/assets/,并登记进游戏。刷新游戏就能看到。
+
+文件命名(必须按这个来,游戏靠文件名认图):
+
+  摊位      stall_<摊位名>.png
+            摊位名:kebab 烤串 / tofu 臭豆腐 / rice 炒饭 / tea 奶茶 / candy 糖葫芦 / ice 冰粉
+                    ring 套圈 / phone 手机壳 / lamp 灯牌 / fridge 冰柜 / grill 炭炉 / cat 招财猫
+            二级、三级的变体:stall_kebab_2.png、stall_kebab_3.png(可以先不做)
+            朝向反了(正面朝左下):文件名末尾加 _flip,例如 stall_tea_flip.png,脚本会水平翻转
+
+  顾客      cust_<名字>_front.png(正面)、cust_<名字>_back.png(背面,可以先不做)
+            名字随便起,例如 cust_boy_front.png;土豪固定叫 cust_rich_front.png
+
+  地面      tile_street.png(街面)、tile_walk.png(摊位区地面),要能无缝平铺
+
+原图要求:
+
+  - 背景是纯色平涂,不要渐变、暗角、地面投影(否则抠不干净,脚本会给出提醒)
+  - 主体不要贴到图片边缘
+  - 摊位原图至少 640 像素见方,无水印
+  - 已经是透明底的 PNG 可以直接放,脚本会跳过抠图
+
+运行后看一眼 _检查图.png:所有摊位按游戏里的实际大小排在一起,检查大小、角度、亮度是否一致。
+
+想撤掉某张图:把 art_raw 里的原图和 night-market-game/assets 里的同名文件都删掉,再运行一次脚本。
