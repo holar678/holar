@@ -4,7 +4,8 @@ export const LV = [1, 2, 4];
 // 每晚的热度目标(热度 = 流水 × 人气),按自动试玩(随手乱摆、不讲究顺序)的热度分布定的:
 // 取的是自动试玩热度分布里偏低的一档(大约第 15 百分位;第 10 晚取第 25 百分位),所以乱摆也有八成多能过前九晚、七成多能过第 10 晚。
 // 第 3、6、9、10 晚是大考,有额外的限制,所以这几晚的目标涨得慢。热度是乘出来的,好坏局差距很大,真人认真摆会远高于目标
-export const TARGET = [25, 75, 150, 450, 1600, 3800, 10000, 13000, 15000, 22000];
+// 2026-11-17 加了街型以后人气整体高了一些(后几晚约 +25%),第 4 晚起的目标跟着上调
+export const TARGET = [25, 75, 150, 500, 1700, 4100, 10500, 15000, 17500, 26000];
 const INFL = 1.4; // 物价每晚上涨的倍率,防止后期钱花不完
 
 // s3: 升到 3 级后多出来的「招牌技」(只有售卖摊有),效果在 trySell 和 statOf 里按摊位写
@@ -43,22 +44,35 @@ export const PERKS = [
   { k: 'supply', e: '📦', n: '老供货商', d: '每晚第一次换货免费' },
   { k: 'queue', e: '👥', n: '排长队', d: '吸引力 60% 以上的摊位售价 +25%' },
   { k: 'set', e: '🍱', n: '尝鲜', d: '顾客头一回买某个品类,这一单 +20%' },
+  { k: 'inpat', e: '🪧', n: '街面招牌', d: '属于任一街型的摊位,售价 +12%' },
+  // ---- 只有一级(one: 1)。改规则的:本身不加分,让别的摆法成型 ----
+  { k: 'mix', e: '🔀', n: '混搭', one: 1, d: '饮品算甜品、杂货算玩具(街型、专卖街)' },
+  { k: 'short', e: '✂️', n: '小连摊', one: 1, d: '连摊只要连着 2 个就算' },
+  { k: 'gap', e: '↕️', n: '隔空搭配', one: 1, d: '招牌搭配中间隔一个摊位也成立' },
+  // ---- 只有一级。越带越强的:每营业一晚永久长一点,换掉就清零 ----
+  { k: 'regular', e: '🧓', n: '熟客', one: 1, d: '每营业一晚,所有售价永久 +5%' },
+  { k: 'fame', e: '📈', n: '攒名气', one: 1, d: '每晚每种街型,开张人气永久 +0.05' },
   // ---- 「人气」类:不加流水,加倍率 ----
   { k: 'warm', e: '🚪', n: '开门迎客', d: '每晚开张时人气多 +0.3' },
   { k: 'word', e: '💬', n: '口口相传', d: '顾客买满时,人气多涨 0.1' },
   { k: 'cool', e: '🥤', n: '解渴名店', d: '口渴连击时,人气多涨 0.1' },
   { k: 'pair', e: '🧩', n: '好搭档', d: '每组招牌搭配,开张时人气多 +0.2' },
+  { k: 'pat', e: '🏘️', n: '街坊名声', d: '街型给的人气 +50%' },
   // ---- 稀有(r: 1):把人气再乘一次。只有一级,不能叠 ----
   { k: 'xcombo', e: '⛓️', n: '连锁招牌', r: 1, d: '每组生效的招牌搭配,人气 ×1.2' },
   { k: 'xfew', e: '💎', n: '小而精', r: 1, d: '靠街摊位不超过 6 个时,人气 ×1.8' },
   { k: 'xfull', e: '🎪', n: '一条龙', r: 1, d: '靠街 12 个位置全摆满时,人气 ×1.6' },
   { k: 'xtop', e: '👑', n: '老字号', r: 1, d: '每个 3 级的靠街摊位,人气 ×1.15' },
   { k: 'xmono', e: '🏷️', n: '专卖街', r: 1, d: '靠街摊位不超过 2 个品类时,人气 ×1.6' },
+  { k: 'xpat', e: '🗺️', n: '街区名片', r: 1, d: '每成立一种街型,人气 ×1.2' },
 ];
 // 秘诀最多带 PERK_SLOTS 种,同一种最多叠到 PERK_MAX 级(稀有的只有 1 级)。once 的秘诀(地摊执照)当场生效,不占栏位
 export const PERK_SLOTS = 5, PERK_MAX = 3, RARE_CHANCE = 0.25;
 const perkDef = k => PERKS.find(p => p.k === k) || {};
-export const perkMax = p => p.r ? 1 : PERK_MAX;
+export const perkMax = p => p.r || p.one ? 1 : PERK_MAX;
+// 成长型秘诀攒下的数:{ regular: 营业过几晚, fame: 攒下的人气 }。只在带着这个秘诀时有效,换掉就清零
+export const grown = k => perk(k) && G.S.pg ? G.S.pg[k] || 0 : 0;
+export const FAME = 0.05, REGULAR = 0.05;
 export const ownedPerks = () => PERKS.filter(p => !p.once && (G.S.perks[p.k] || 0) > 0);
 export const perkSlots = () => ownedPerks().length;
 export const perkCap = () => PERK_SLOTS - (G.S && !G.S.arena && (G.S.stake || 1) >= 8 ? 1 : 0);   // 这一局最多带几种
@@ -79,6 +93,7 @@ export const ACHS = [
   { k: 'combo3', n: '搭配大师', d: '同时摆出 3 组招牌搭配', r: 2, t: x => x.combos >= 3 },
   { k: 'found5', n: '见多识广', d: '发现 5 种招牌搭配', r: 2, t: x => x.found >= 5 },
   { k: 'found10', n: '夜市百科', d: '发现全部 10 种招牌搭配', r: 3, t: x => x.found >= 10 },
+  { k: 'pat4', n: '一条好街', d: '同时成立 4 种街型', r: 2, t: x => x.pats >= 4 },
   { k: 'win', n: '夜市之王', d: '通关主线', r: 2, t: x => x.win },
   { k: 'flawless', n: '一颗心都没丢', d: '通关主线时没有丢过心', r: 3, t: x => x.win && x.full },
   { k: 'end15', n: '不夜城', d: '无尽模式撑过第 15 晚', r: 3, t: x => x.best >= 15 },
@@ -136,7 +151,8 @@ export function goalInfo() {
   const cur = G.N && G.N.earn ? Math.round(def.v(G.N) * 10) / 10 : 0;
   return { text: def.d(g.n), cur: Math.min(cur, g.n), n: g.n, reward: g.reward, done: cur >= g.n };
 }
-const counters = () => ({ thirst: 0, maxed: 0, earn: {}, catSet: {}, flow: 0, heat: 1, xmult: 1 });   // 当晚的统计:小目标用的几项,加上流水、人气、稀有秘诀的倍数
+// 当晚的统计:小目标用的几项,加上流水、人气、稀有秘诀的倍数;hThirst / hMaxed / hMid 是口渴连击、买满、中场补上的人气各涨了多少(结算时列明细)
+const counters = () => ({ thirst: 0, maxed: 0, earn: {}, catSet: {}, flow: 0, heat: 1, xmult: 1, hThirst: 0, hMaxed: 0, hMid: 0, kinds: 0 });
 
 // 夜市事件:主线从第 2 晚起,每晚有六成机会碰上一件事,改变当晚的规则。事件公开显示在白天,玩家可以先挪摊位再开张。
 // cust: 客流倍数;cap: 每人消费次数的增减;其余效果在 statOf 里按 k 处理
@@ -182,14 +198,61 @@ const frontAt = (c, r) => { const s = stallAt(c, r); return s && !DEF[s.id].sup 
 // 场上现在生效的所有搭配
 export function activeCombos() {
   const out = [];
-  for (const s of G.S.stalls) { if (!isFront(s.c) || DEF[s.id].sup || patrolled(s.r)) continue; const t = frontAt(s.c, s.r + 1); if (t) out.push(...pairCombos(s, t)); }
+  for (const s of G.S.stalls) {
+    if (!isFront(s.c) || DEF[s.id].sup || patrolled(s.r)) continue;
+    const t = frontAt(s.c, s.r + 1); if (t) out.push(...pairCombos(s, t));
+    const t2 = perk('gap') && frontAt(s.c, s.r + 2); if (t2) out.push(...pairCombos(s, t2));   // 秘诀「隔空搭配」:隔一格也算
+  }
   return out;
 }
-// 某个摊位参与的搭配(和上家、下家各看一次)
+// 某个摊位参与的搭配(和上家、下家各看一次;带「隔空搭配」时再看隔一格的)
 function combosAt(s) {
   if (!isFront(s.c) || patrolled(s.r)) return [];
-  const up = frontAt(s.c, s.r - 1), down = frontAt(s.c, s.r + 1);
-  return (up ? pairCombos(up, s) : []).concat(down ? pairCombos(s, down) : []);
+  const out = [], ds = perk('gap') ? [1, 2] : [1];
+  for (const k of ds) { const up = frontAt(s.c, s.r - k), down = frontAt(s.c, s.r + k); if (up) out.push(...pairCombos(up, s)); if (down) out.push(...pairCombos(s, down)); }
+  return out;
+}
+
+// 街型:开张时按靠街摊位的「形状」自动识别,不用记表。只看品类、名字、等级和位置,怎么摆都可能凑出来;
+// 可以同时成立好几种、好几组,人气全部叠加。和招牌搭配(固定的两两组合)互相独立,两样可以一起吃
+export const PATTERNS = [
+  { k: 'chain', n: '连摊', d: '同侧连着 3 个以上同品类,每个 +0.1' },
+  { k: 'mirror', n: '对门', d: '两边同排同品类 2 排以上,每排 +0.1' },
+  { k: 'variety', n: '品类齐全', d: '靠街有 4 个以上品类,每类 +0.1' },
+  { k: 'brand', n: '连锁店', d: '靠街 3 个以上同名摊位,每个 +0.1' },
+  { k: 'stairs', n: '步步高', d: '同侧往街尾连着 1、2、3 级,+0.5' },
+];
+const PAT_N = Object.fromEntries(PATTERNS.map(p => [p.k, p.n]));
+// 连摊、对门、专卖街用的品类:带「混搭」时饮品算甜品、杂货算玩具
+const catKey = id => { const c = DEF[id].cat; return perk('mix') ? (c === 'drink' ? 'sweet' : c === 'goods' ? 'game' : c) : c; };
+// 场上现在成立的街型:[{ k, n, heat, uids }],同一种可以有好几组(比如左右两边各一条连摊)。
+// uids 是参与的摊位,秘诀「街面招牌」按它加价;品类齐全算整条街的,不落到具体摊位上
+export function streetPatterns() {
+  const out = [], add = (k, heat, list) => out.push({ k, n: PAT_N[k], heat, uids: list.map(s => s.uid) });
+  const minRun = perk('short') ? 2 : 3;
+  for (const c of [1, 2]) {   // 沿街同一侧从街口往街尾看:连摊、步步高
+    let run = [];
+    for (let r = 0; r <= ROWS; r++) {
+      const s = r < ROWS ? frontAt(c, r) : null;
+      if (s && run.length && catKey(s.id) === catKey(run[0].id)) { run.push(s); continue; }
+      if (run.length >= minRun) add('chain', .1 * run.length, run);
+      run = s ? [s] : [];
+    }
+    for (let r = 0; r + 2 < ROWS; r++) { const t = [0, 1, 2].map(i => frontAt(c, r + i)); if (t.every((s, i) => s && s.lvl === i + 1)) add('stairs', .5, t); }
+  }
+  const mir = []; for (let r = 0; r < ROWS; r++) { const a = frontAt(1, r), b = frontAt(2, r); if (a && b && catKey(a.id) === catKey(b.id)) mir.push(a, b); }
+  if (mir.length >= 4) add('mirror', .1 * mir.length / 2, mir);
+  const front = G.S.stalls.filter(s => isFront(s.c) && frontAt(s.c, s.r) === s);
+  const cats = new Set(front.map(s => DEF[s.id].cat)); if (cats.size >= 4) add('variety', .1 * cats.size, []);   // 品类齐全按原本的品类算,「混搭」帮不上
+  const byId = {}; for (const s of front) (byId[s.id] = byId[s.id] || []).push(s);
+  for (const id in byId) if (byId[id].length >= 3) add('brand', .1 * byId[id].length, byId[id]);
+  const k = 1 + 0.5 * perk('pat'); for (const p of out) p.heat = Math.round(p.heat * k * 100) / 100;   // 秘诀「街坊名声」
+  return out;
+}
+// 按种类合并:[{ k, n, count, heat }],给界面显示用
+export function patternSummary(list = streetPatterns()) {
+  const m = {}; for (const p of list) { const x = m[p.k] = m[p.k] || { k: p.k, n: p.n, count: 0, heat: 0 }; x.count++; x.heat = Math.round((x.heat + p.heat) * 100) / 100; }
+  return PATTERNS.map(p => m[p.k]).filter(Boolean);
 }
 const CAT_N = { food: '小吃', drink: '饮品', sweet: '甜品', game: '玩具', goods: '杂货' };
 const EVENT_CHANCE = 0.6;
@@ -233,18 +296,18 @@ export function restore(d) { G.S = d; G.N = null; for (const s of d.stalls) uid 
 // 每日挑战:擂台的一个变体。每天一个主题(一组现成的经营秘诀,外加可选的预算和客流),所有人当天进到的货完全相同。
 // base 是自动试玩在这个主题下的热度中位数,奖牌线按它的倍数定
 export const DAILY = [
-  { k: 'hot', n: '网红之夜', d: '客流多 12 人', perks: { more: 3 }, base: 5640 },
-  { k: 'eat', n: '大胃王之夜', d: '每位顾客最多买 5 次', perks: { big: 2 }, base: 2240 },
-  { k: 'rich', n: '土豪之夜', d: '多来 6 位土豪,消费 ×3', perks: { rich: 3 }, base: 5950 },
-  { k: 'back', n: '回头客之夜', d: '75% 的顾客走到街尾会折返再逛一遍', perks: { back: 3 }, base: 3280 },
-  { k: 'gift', n: '临别大促', d: '每位顾客的最后一单 ×3,第一单额外 +¥10', perks: { last: 2, first: 2 }, base: 4780 },
-  { k: 'tight', n: '精打细算', d: '预算只有 ¥250,但进货价打七折', perks: { cheap: 2 }, budget: 250, base: 2190 },
-  { k: 'gold', n: '黄金地段', d: '所有售价 +45%,但客流只有 12 人', perks: { price: 3 }, cust: 12, base: 1890 },
-  { k: 'rain', n: '雨夜', d: '客流少四分之一,小吃售价 +50%', perks: {}, event: { k: 'rain' }, base: 2210 },
-  { k: 'fair', n: '庙会', d: '客流多四成,但每人少买一次', perks: {}, event: { k: 'fair' }, base: 3940 },
-  { k: 'blog', n: '博主探店', d: '甜品售价 +80%', perks: {}, event: { k: 'blogger', cat: 'sweet' }, base: 3080 },
-  { k: 'kids', n: '亲子夜', d: '四成顾客是小孩,只买甜品和玩具,但爱掏钱', perks: {}, event: { k: 'kids' }, base: 1770 },
-  { k: 'couple', n: '情侣夜', d: '一半顾客是情侣,每单付两份,最多买两次', perks: {}, event: { k: 'couple' }, base: 3430 },
+  { k: 'hot', n: '网红之夜', d: '客流多 12 人', perks: { more: 3 }, base: 6480 },
+  { k: 'eat', n: '大胃王之夜', d: '每位顾客最多买 5 次', perks: { big: 2 }, base: 2780 },
+  { k: 'rich', n: '土豪之夜', d: '多来 6 位土豪,消费 ×3', perks: { rich: 3 }, base: 6640 },
+  { k: 'back', n: '回头客之夜', d: '75% 的顾客走到街尾会折返再逛一遍', perks: { back: 3 }, base: 3690 },
+  { k: 'gift', n: '临别大促', d: '每位顾客的最后一单 ×3,第一单额外 +¥10', perks: { last: 2, first: 2 }, base: 5580 },
+  { k: 'tight', n: '精打细算', d: '预算只有 ¥250,但进货价打七折', perks: { cheap: 2 }, budget: 250, base: 2550 },
+  { k: 'gold', n: '黄金地段', d: '所有售价 +45%,但客流只有 12 人', perks: { price: 3 }, cust: 12, base: 2280 },
+  { k: 'rain', n: '雨夜', d: '客流少四分之一,小吃售价 +50%', perks: {}, event: { k: 'rain' }, base: 2520 },
+  { k: 'fair', n: '庙会', d: '客流多四成,但每人少买一次', perks: {}, event: { k: 'fair' }, base: 4280 },
+  { k: 'blog', n: '博主探店', d: '甜品售价 +80%', perks: {}, event: { k: 'blogger', cat: 'sweet' }, base: 3560 },
+  { k: 'kids', n: '亲子夜', d: '四成顾客是小孩,只买甜品和玩具,但爱掏钱', perks: {}, event: { k: 'kids' }, base: 2080 },
+  { k: 'couple', n: '情侣夜', d: '一半顾客是情侣,每单付两份,最多买两次', perks: {}, event: { k: 'couple' }, base: 4030 },
 ];
 export const themeOf = day => DAILY[day % DAILY.length];
 // 铜牌随手能拿;银牌约等于自动试玩里排前五分之一的成绩;金牌比自动试玩的最好成绩还高一截,要靠排顺序和搭配
@@ -344,7 +407,8 @@ export function statOf(s) {
     if (o.id === 'cat') flat += 2 * o.lvl;
     if (o.id === 'tofu' && o.lvl < 3 && d.cat !== 'food') aMul -= 0.3;   // 3 级臭豆腐不再熏邻摊
   }
-  pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price'));
+  pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price')) * (1 + REGULAR * grown('regular'));   // 秘诀「熟客」:每营业一晚永久涨一点
+  if (perk('inpat') && streetPatterns().some(p => p.uids.indexOf(s.uid) >= 0)) pm *= 1 + 0.12 * perk('inpat');   // 秘诀「街面招牌」
   if (s.r >= ROWS - 2) pm *= 1 + 0.3 * perk('tail');
   const seen = {};   // 招牌搭配:同一种搭配对一个摊位只算一次
   for (const x of combosAt(s)) { if (seen[x.c.k]) continue; seen[x.c.k] = 1; const fx = x.a === s ? x.c.fa : x.c.fb; if (fx) { aMul += fx.a || 0; pm *= 1 + (fx.p || 0); } }
@@ -394,20 +458,24 @@ export function sell(s) { const S = G.S; S.money += sellVal(s); S.stalls = S.sta
 // ---------- 夜晚结算 ----------
 function makeQueue(n, rich) { const q = []; for (let i = 0; i < n; i++) q.push(false); for (let i = 0; i < rich; i++) q.push(true); return q.sort(() => Math.random() - 0.5); }
 function calcStats() { const m = new Map(); for (const s of G.S.stalls) if (isFront(s.c) && !DEF[s.id].sup) { const st = statOf(s); if (!st.closed) m.set(s.uid, st); } return m; }
-// 按现在的摆法算:开张时的人气(1 起步,每组招牌搭配加一点),以及稀有秘诀再乘的倍数
+// 按现在的摆法算:开张时的人气(1 起步,招牌搭配、街型、秘诀各加一点),以及稀有秘诀再乘的倍数。
+// parts 是人气的来源明细(结算时列给玩家看),pats 是成立的街型,kinds 是街型有几种
 function calcOpen(stats) {
   const front = G.S.stalls.filter(s => stats.has(s.uid)), combos = activeCombos().filter(x => stats.has(x.a.uid) && stats.has(x.b.uid)).length;
-  const heat = Math.round((1 + 0.3 * perk('warm') + combos * (HEAT.combo + 0.2 * perk('pair'))) * 100) / 100;
+  const pats = streetPatterns(), kinds = new Set(pats.map(p => p.k)).size, r2 = v => Math.round(v * 100) / 100;
+  const parts = { base: 1, perk: r2(0.3 * perk('warm') + grown('fame')), combo: r2(combos * (HEAT.combo + 0.2 * perk('pair'))), pat: r2(pats.reduce((a, p) => a + p.heat, 0)) };
+  const heat = r2(parts.base + parts.perk + parts.combo + parts.pat);
   let x = 1;
+  if (perk('xpat')) x *= Math.pow(1.2, kinds);
   if (perk('xcombo')) x *= Math.pow(1.2, combos);
   if (perk('xfew') && front.length && front.length <= 6) x *= 1.8;
   if (perk('xfull') && front.length >= 12) x *= 1.6;
   if (perk('xtop')) x *= Math.pow(1.15, front.filter(s => s.lvl >= 3).length);
-  if (perk('xmono') && front.length && new Set(front.map(s => DEF[s.id].cat)).size <= 2) x *= 1.6;
-  return { heat, xmult: Math.round(x * 100) / 100 };
+  if (perk('xmono') && front.length && new Set(front.map(s => catKey(s.id))).size <= 2) x *= 1.6;
+  return { heat, xmult: Math.round(x * 100) / 100, parts, pats, kinds };
 }
-// 开张:把上面算出来的两个数写进当晚状态。open 记下开张时的人气,中场挪了摊位以后用它算「新凑成的搭配该补多少」
-function openHeat(N) { const o = calcOpen(N.stats); N.heat = N.open = o.heat; N.xmult = o.xmult; return N; }
+// 开张:把上面算出来的数写进当晚状态。open 记下开张时的人气,中场挪了摊位以后用它算「新凑成的搭配、街型该补多少」
+function openHeat(N) { const o = calcOpen(N.stats); N.heat = N.open = o.heat; N.xmult = o.xmult; N.parts = o.parts; N.kinds = o.kinds; return N; }
 // 白天预览:按现在的摆法,开张时人气是多少、稀有秘诀的倍数是多少
 export const openPreview = () => calcOpen(calcStats());
 
@@ -446,8 +514,8 @@ export function breakMove(s, c, r) { const N = G.N; if (G.S.phase !== 'break' ||
 export function nextWave() {
   const N = G.N; if (G.S.phase !== 'break' || !N) return;
   N.wave++; N.stats = calcStats(); const o = calcOpen(N.stats);
-  if (o.heat > N.open) { N.heat = Math.round((N.heat + o.heat - N.open) * 100) / 100; N.open = o.heat; }
-  N.xmult = o.xmult; N.income = Math.round(N.flow * N.heat * N.xmult);
+  if (o.heat > N.open) { N.hMid = Math.round((N.hMid + o.heat - N.open) * 100) / 100; N.heat = Math.round((N.heat + o.heat - N.open) * 100) / 100; N.open = o.heat; }
+  N.xmult = o.xmult; N.kinds = Math.max(N.kinds, o.kinds); N.income = Math.round(N.flow * N.heat * N.xmult);
   G.S.phase = 'night'; loadWave();
 }
 export function encore() { G.N.encore = true; G.N.waveType = 'normal'; G.N.queue = makeQueue(6, 0); G.S.phase = 'night'; }
@@ -483,8 +551,8 @@ function trySell(c, s, onSale) {
   if (s.id === 'rice' && !top) c.full = true; if (s.id === 'ring') c.happy = top ? 1.5 : 1.4;
   if (s.id === 'lemon') c.full = false; if (s.id === 'balloon') c.balloon = top ? 1.35 : 1.2;
   let dh = 0;   // 这一单让人气涨了多少
-  if (!free) { c.buys++; if (c.buys === cap) { N.maxed++; dh += HEAT.maxed + 0.1 * perk('word'); } }
-  if (f.thirsty) { N.thirst++; dh += HEAT.thirst + 0.1 * perk('cool'); }
+  if (!free) { c.buys++; if (c.buys === cap) { N.maxed++; const v = HEAT.maxed + 0.1 * perk('word'); dh += v; N.hMaxed = Math.round((N.hMaxed + v) * 100) / 100; } }
+  if (f.thirsty) { N.thirst++; const v = HEAT.thirst + 0.1 * perk('cool'); dh += v; N.hThirst = Math.round((N.hThirst + v) * 100) / 100; }
   N.catSet[d.cat] = 1; N.earn[s.uid] = (N.earn[s.uid] || 0) + amt;
   N.flow += amt; N.heat = Math.round((N.heat + dh) * 100) / 100; f.heat = dh;
   N.income = Math.round(N.flow * N.heat * N.xmult);   // 热度 = 流水 × 人气 × 稀有秘诀的倍数
@@ -497,7 +565,8 @@ export const interestOf = () => G.S.arena ? 0 : Math.min(Math.floor(G.S.money / 
 export const wantsBack = c => !c.ret && c.buys < capOf(c) && Math.random() < 0.25 * perk('back');
 export function finishNight() {
   const S = G.S, T = target(), inc = G.N.income; S.phase = 'settle';
-  return { ok: S.arena ? inc > T : inc >= T, inc, T, flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
+  const N = G.N, src = Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid });   // 人气的来源明细
+  return { ok: S.arena ? inc > T : inc >= T, inc, T, flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
 }
 // 进入下一晚的白天。普通模式里第 10 晚没过则重打第 10 晚;无尽模式一直往后
 export function nextDay() {
@@ -529,6 +598,11 @@ export function skipNight() {
 // 返回 'win' | 'perk'(等玩家选完秘诀再进下一晚)| 'over' | 'next'
 export function settle(ok, gain) {
   const S = G.S; S.money += gain;
+  if (!S.arena && (perk('regular') || perk('fame'))) {   // 成长型秘诀:营业过一晚(不论过没过),各自长一点
+    const pg = S.pg = S.pg || {}, kinds = G.N && G.N.kinds != null ? G.N.kinds : new Set(streetPatterns().map(p => p.k)).size;
+    if (perk('regular')) pg.regular = (pg.regular || 0) + 1;
+    if (perk('fame')) pg.fame = Math.round(((pg.fame || 0) + FAME * kinds) * 100) / 100;
+  }
   if (ok) { if (!S.arena && isBossNight(S.night)) S.rareNext = true; return S.night === MAXN && !S.endless ? 'win' : 'perk'; }   // 过了大考:下次选秘诀必出一个稀有的
   S.hearts--; if (S.hearts <= 0) return 'over';
   nextDay(); return 'next';
@@ -551,7 +625,7 @@ export function skipPerk() { G.S.rareNext = G.S.rareOnly = false; nextDay(); }
 // 拿一个秘诀。栏位满了又不是已有的,要指定换掉哪个(drop,秘诀的 k);没指定就返回 'full',什么也不做
 export function takePerk(p, drop) {
   const S = G.S;
-  if (!p.once && !perk(p.k) && perkSlots() >= perkCap()) { if (!drop || !perk(drop) || perkDef(drop).once) return 'full'; delete S.perks[drop]; }
+  if (!p.once && !perk(p.k) && perkSlots() >= perkCap()) { if (!drop || !perk(drop) || perkDef(drop).once) return 'full'; delete S.perks[drop]; if (S.pg) delete S.pg[drop]; }   // 换掉成长型秘诀:攒下的清零
   S.perks[p.k] = perk(p.k) + 1; S.rareNext = S.rareOnly = false;
   if (p.k === 'land') unlockFree(2);
   nextDay(); return 'ok';

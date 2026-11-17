@@ -3,9 +3,16 @@ const isWx = typeof wx !== 'undefined' && typeof wx.createCanvas === 'function';
 // 上线前必须填:开通流量主后,把微信后台的激励视频广告位 ID 填在这里。
 // 留空时没有真广告:点「看广告」的按钮会直接发奖励,并提示广告位未配置,只适合测试
 const AD_UNIT_ID = '';
+// 版本号:每次用开发者工具上传前先改这里,上传时填同一个号。玩家在「怎么玩」窗口最下面能看到,用来确认体验版有没有更新
+const VERSION = '0.9.2';
+// 当前跑的是哪个版本:开发版(开发者工具 / 预览)、体验版、正式版;浏览器里是调试
+function envName() {
+  if (!isWx) return '浏览器调试';
+  try { return { develop: '开发版', trial: '体验版', release: '正式版' }[wx.getAccountInfoSync().miniProgram.envVersion] || ''; } catch (e) { return ''; }
+}
 
 // w/h: 屏幕大小;scale: 设计稿(宽 375)到屏幕的缩放;offX: 画面左边留出的空白(宽屏、平板上画面居中,两侧留边)
-const P = { isWx, canvas: null, w: 375, h: 667, dpr: 1, scale: 1, offX: 0, safeTop: 10, hasAd: isWx && !!AD_UNIT_ID };
+const P = { isWx, canvas: null, w: 375, h: 667, dpr: 1, scale: 1, offX: 0, safeTop: 10, hasAd: isWx && !!AD_UNIT_ID, version: VERSION, env: envName() };
 const MIN_H = 667;   // 设计稿的最小高度。屏幕比这个更「矮胖」时(平板、折叠屏、电脑上的微信),按高度缩放并左右留边
 
 function size() {

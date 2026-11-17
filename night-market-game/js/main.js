@@ -78,7 +78,7 @@ const saveProf = () => P.store.set('prof', JSON.stringify(prof));
 // 调用前后要各自记下 prof.cleared,用来判断有没有顺带解锁新摊位
 function snapshot(extra) {
   const S = G.S, N = G.N;
-  return Object.assign({ inc: N ? N.income : 0, thirst: N ? N.thirst || 0 : 0, lvl3: S.stalls.some(x => x.lvl >= 3), combos: L.activeCombos().length, found: prof.combos.length,
+  return Object.assign({ inc: N ? N.income : 0, thirst: N ? N.thirst || 0 : 0, lvl3: S.stalls.some(x => x.lvl >= 3), combos: L.activeCombos().length, found: prof.combos.length, pats: L.patternSummary().length,
     win: false, full: false, best: prof.best, wonWith: prof.wonWith.length, medal: prof.medal || 0, streak: prof.streak || 0 }, extra);
 }
 function grantAch(x) {
@@ -189,7 +189,7 @@ function loadRun() {
 }
 
 // ---------- 好友擂台 ----------
-function resetUi() { Object.assign(ui, { sel: null, modal: null, cust: [], coins: [], pops: [], feed: [], inc: 0, peek: null, money: G.S.money, combos: null }); }
+function resetUi() { Object.assign(ui, { sel: null, modal: null, cust: [], coins: [], pops: [], feed: [], inc: 0, peek: null, money: G.S.money, combos: null, pats: null }); }
 function enterArena(rival, skipIntro, daily) {
   const th = daily ? L.themeOf(today()) : null;
   L.enterArena(rival, th ? { day: today(), theme: th } : null); resetUi(); if (skipIntro) return; sfx.open();
@@ -323,19 +323,35 @@ function topEarners() {
 // 人气写成「2.6」;带了稀有秘诀就写成「2.6 × 1.8」
 const heatText = o => o.heat.toFixed(1) + (o.xmult > 1 ? ' × ' + o.xmult : '');
 const scoreLine = r => `流水 ¥${r.flow} × 人气 ${heatText(r)} = 热度 ${r.inc}`;
+// 人气的来源明细:「起步 1 · 招牌搭配 +0.4 · 街型 +0.8 · 口渴连击 +0.5……」,带了稀有秘诀再写乘了多少
+const SRC_N = [['base', '起步'], ['perk', '秘诀'], ['combo', '招牌搭配'], ['pat', '街型'], ['mid', '中场'], ['thirst', '口渴连击'], ['maxed', '买满']];
+const srcLine = (src, xmult) => '人气来源:' + SRC_N.filter(([k]) => src[k] > 0).map(([k, n]) => `${n} ${k === 'base' ? '' : '+'}${Math.round(src[k] * 100) / 100}`).join(' · ') + (xmult > 1 ? `;稀有秘诀再 ×${xmult}` : '');
+const patText = p => `${p.n}${p.count > 1 ? ' ×' + p.count : ''} +${p.heat}`;
+// 人气从哪来:白天按现在的摆法预览开张时的人气,中场显示当晚已经涨到多少;下面列出所有街型的规则
+function heatModal() {
+  const N = G.S.phase === 'break' && G.N, o = L.openPreview(), pats = L.patternSummary(o.pats);
+  const src = N ? Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid }) : o.parts;
+  ui.modal = {
+    title: '人气从哪来', small: true, lines: [(N ? '今晚到现在,' : '按现在的摆法,开张时') + `人气 ×${heatText(N || o)}`, srcLine(src, (N || o).xmult),
+      pats.length ? '成立的街型:' + pats.map(patText).join(' · ') : '还没有凑成街型。下面任何一种都行,可以同时凑好几种',
+      '营业时还会涨:口渴连击、顾客买满各 +0.1', '街型都能叠着凑(人气):']
+      .concat(L.PATTERNS.map(p => `${p.n}:${p.d}`), ['招牌搭配另算,可以和街型一起吃']),
+    buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }]
+  };
+}
 function showSettle(r) {
   if (G.S.arena) return arenaSettle(r);
   if (r.ok) {
     sfx.ok(); const base = r.flow + r.tip + r.interest + r.goal, extra = Math.round(base * .5);
     ui.modal = {
-      title: '今晚达标!', tone: 'ok', small: true, lines: [scoreLine(r), `目标 ${r.T},达标`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], r.interest ? [`利息 +¥${r.interest}(没花的钱每 ¥10 生 ¥1,上限 ¥${L.interestCap()})`] : [], r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
+      title: '今晚达标!', tone: 'ok', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},达标`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], r.interest ? [`利息 +¥${r.interest}(没花的钱每 ¥10 生 ¥1,上限 ¥${L.interestCap()})`] : [], r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
       buttons: [{ label: `收摊  +¥${base}`, kind: 'pri', fn: () => afterSettle(true, base) }, { label: `{play}看广告多得 50%  +¥${base + extra}`, kind: 'ad', fn: () => watchAd(() => afterSettle(true, base + extra)) }]
     };
   } else {
     sfx.fail();
     P.store.set('pendingFail', String(r.flow));   // 记一笔:如果在这个界面直接退出,下次进来按未达标结算
     ui.modal = {
-      title: '没达标', tone: 'bad', small: true, lines: [scoreLine(r), `目标 ${r.T},还差 ${r.T - r.inc}`].concat(r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
+      title: '没达标', tone: 'bad', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},还差 ${r.T - r.inc}`].concat(r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
       buttons: (r.encore ? [] : [{ label: '{play}看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }])
         .concat([{ label: '认了(失去一颗心)', kind: 'sec', fn: () => afterSettle(false, r.flow + r.goal) }])
     };
@@ -420,8 +436,8 @@ function restart() {
 function helpModal() {
   const next = L.UNLOCKS.find(u => prof.cleared < u.at);   // 下一个要解锁的摊位
   ui.modal = {
-    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息:每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查']
-      .concat(!G.S.arena && L.stake() > 1 ? [`本局${L.STAKES[L.stake() - 1].n}:${L.STAKES.slice(1, L.stake()).map(x => x.d).join(';')}`] : [], !G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : []),
+    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息:每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
+      .concat(!G.S.arena && L.stake() > 1 ? [`本局${L.STAKES[L.stake() - 1].n}:${L.STAKES.slice(1, L.stake()).map(x => x.d).join(';')}`] : [], !G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : [], [`版本 ${P.version}${P.env ? '(' + P.env + ')' : ''}`]),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }, { label: `音效:${prof.sound ? '开' : '关'}`, kind: 'sec', fn: () => { prof.sound = !prof.sound; saveProf(); helpModal(); } }]
       .concat(G.S.arena ? [] : [{ label: '重新开始主线', kind: 'sec', fn: restart }])
   };
@@ -459,7 +475,7 @@ function comboModal() {
     const ka = c.a.filter(id => !needOf(id)), kb = c.b.filter(id => !needOf(id)), one = ka[0] || kb[0];
     return '「???」' + (ka.length && kb.length ? `和${DEF[ka[0]].n}有关` : one ? `和${DEF[one].n}有关,还要一个没解锁的摊位` : '要用到还没解锁的摊位');
   }));
-  ui.modal = { title: `招牌搭配 ${L.COMBOS.filter(comboFound).length}/${L.COMBOS.length}`, small: true, lines, buttons: [{ label: '返回图鉴', kind: 'pri', fn: codexModal }] };
+  ui.modal = { title: `招牌搭配 ${L.COMBOS.filter(comboFound).length}/${L.COMBOS.length}`, small: true, lines, buttons: [{ label: '返回图鉴', kind: 'pri', fn: codexModal }, { label: '街型说明', kind: 'sec', fn: heatModal }] };
 }
 function stallModal(id) {
   const d = DEF[id], need = needOf(id);
@@ -472,7 +488,8 @@ function stallModal(id) {
 }
 function perkListModal() {
   const own = L.ownedPerks(); if (!own.length) return helpModal();
-  ui.modal = { title: `已有的经营秘诀 ${own.length}/${L.perkCap()}`, small: true, lines: [`最多带 ${L.perkCap()} 种;同一种最多叠到 ${L.PERK_MAX} 级,稀有的只有 1 级`].concat(own.map(p => `{perk_${p.k}}${p.n}${p.r ? '(稀有)' : ' ' + L.perk(p.k) + ' 级'}:${p.d}`)), buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }] };
+  ui.modal = { title: `已有的经营秘诀 ${own.length}/${L.perkCap()}`, small: true, lines: [`最多带 ${L.perkCap()} 种;同一种最多叠到 ${L.PERK_MAX} 级,稀有的和只有一级的不能叠`].concat(own.map(p => `{perk_${p.k}}${p.n}${p.r ? '(稀有)' : p.one ? '' : ' ' + L.perk(p.k) + ' 级'}:${p.d}`
+      + (p.k === 'regular' ? `(已涨 ${Math.round(L.grown('regular') * L.REGULAR * 100)}%)` : p.k === 'fame' ? `(已攒 +${L.grown('fame')})` : ''))),   /* 成长型秘诀:写上已经攒了多少 */ buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }] };
 }
 
 // ---------- 绘制:场景 ----------
@@ -551,8 +568,15 @@ function drawScene() {
     if (s.lvl > 1) { A.rr(ctx, p.x + p.w - 25, p.y, 24, 14, 5); ctx.fillStyle = INK; ctx.fill(); A.rr(ctx, p.x + p.w - 24, p.y + 1, 22, 12, 4); ctx.fillStyle = s.lvl > 2 ? GOLD : '#8fc4ff'; ctx.fill(); txt('Lv' + s.lvl, p.x + p.w - 13, p.y + 7.5, 9, INK, 'center', true); }
   }
   // 招牌搭配:两个摊位之间挂一枚金牌
+  // 连摊:沿街边画一道品类色的竖条,标出连在一起的那几个摊位
+  for (const pt of L.streetPatterns()) if (pt.k === 'chain') {
+    const ss = S.stalls.filter(s => pt.uids.indexOf(s.uid) >= 0); if (!ss.length) continue;
+    const r0 = Math.min(...ss.map(s => s.r)), r1 = Math.max(...ss.map(s => s.r)), bx = ss[0].c === 1 ? l.streetX + 2 : l.streetX + l.sw - 6;
+    A.rr(ctx, bx, l.gridY + r0 * l.rh + 8, 4, (r1 - r0 + 1) * l.rh - 16, 2); ctx.fillStyle = A.CAT_COLOR[DEF[ss[0].id].cat]; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1; ctx.stroke();
+  }
   for (const x of L.activeCombos()) {
-    const up = x.a.r < x.b.r ? x.a : x.b, p = plot(up.c, up.r), bx = p.x + 4, by = p.y + p.h + 4;   // 挂在两摊交界的左角:右上角留给等级牌
+    const gap = Math.abs(x.a.r - x.b.r) > 1;   // 「隔空搭配」凑成的:金牌挂在中间那个摊位的左边
+    const up = x.a.r < x.b.r ? x.a : x.b, p = plot(up.c, up.r + (gap ? 1 : 0)), bx = p.x + 4, by = gap ? p.y + p.h / 2 : p.y + p.h + 4;   // 挂在两摊交界的左角:右上角留给等级牌
     ctx.fillStyle = GOLD; ctx.beginPath(); ctx.arc(bx, by, 7.5, 0, 7); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke();
     txt('搭', bx, by + .5, 8.5, INK, 'center', true);
   }
@@ -592,7 +616,11 @@ function drawHUD() {
   plate(W - 10 - mw, y + 1, mw, 23, PAPER, 6, 2); A.drawCoin(ctx, W - 10 - mw + 13, y + 12.5, 6.5); txt(ms, W - 18, y + 13, 15, INK, 'right', true);
   // 人气:白天显示按现在的摆法开张时是多少,夜里显示实时的。放在钱的左边;左边的内容太长放不下时不显示
   const hm = night && G.N ? G.N.heat * G.N.xmult : (o => o.heat * o.xmult)(L.openPreview()), hs = '人气 ×' + hm.toFixed(1);
-  ctx.font = font(12, true); if (W - 18 - mw - ctx.measureText(hs).width > (ar ? 20 + tw + 70 : 28 + tw + L.maxHearts() * 19)) txt(hs, W - 18 - mw, y + 13, 12, night ? '#ffb3d9' : WARM, 'right', true);
+  ctx.font = font(12, true); const hsw = ctx.measureText(hs).width;
+  if (W - 18 - mw - hsw > (ar ? 20 + tw + 70 : 28 + tw + L.maxHearts() * 19)) {
+    txt(hs, W - 18 - mw, y + 13, 12, night ? '#ffb3d9' : WARM, 'right', true);
+    if (S.phase !== 'night') hit(W - 24 - mw - hsw, y - 2, hsw + 12, 30, heatModal);   // 点人气:看人气从哪来、有哪些街型(夜里不弹,免得挡住结算)
+  }
   // 目标进度条:一根木条,热度用红色填充,达标后变绿
   const gold = S.daily ? L.medalLines(L.themeOf(S.day))[2] : 0, ref = gold || T || (ar ? ui.best : 0);   // 进度条的满格:主线是目标,擂台是擂主成绩或个人最高
   const bx = 12, by = y + 30, bw = W - 24, bh = 20, k = night && ref ? Math.min(1, ui.inc / ref) : 0;
@@ -737,9 +765,11 @@ function drawModal() {
   if (m.timer != null) { m.timer -= DT; if (m.timer <= 0) { const cb = m.onDone; ui.modal = null; cb(); return drawModal(); } }
   m.a = Math.min(1, (m.a || 0) + DT * 7);
   ctx.fillStyle = `rgba(12,7,4,${.72 * m.a})`; ctx.fillRect(0, 0, W, H); ui.hits.length = 0; hit(0, 0, W, H, () => { });
-  const w = 319, x = (W - w) / 2, lh = m.small ? 0 : 24, lines = m.small ? m.lines.flatMap(s => wrap(s, w - 48, 12.5)) : m.lines || [];
-  const hLines = m.small ? lines.length * 21 : lines.length * lh, hPerks = (m.perks || []).length * 66, hBtn = m.buttons.length * 54, hGrid = m.grid ? Math.ceil(m.grid.length / 4) * 84 + 2 : 0;
-  const h = 66 + hLines + hPerks + hGrid + hBtn + (m.timer != null ? 26 : 8), y = (H - h) / 2, e = 1 - Math.pow(1 - m.a, 3);
+  const w = 319, x = (W - w) / 2, lines = m.small ? m.lines.flatMap(s => wrap(s, w - 48, 12.5)) : m.lines || [];
+  const hPerks = (m.perks || []).length * 66, hBtn = m.buttons.length * 54, hGrid = m.grid ? Math.ceil(m.grid.length / 4) * 84 + 2 : 0, rest = 66 + hPerks + hGrid + hBtn + (m.timer != null ? 26 : 8);
+  // 小字行距 21;行数太多、纸牌高过屏幕时(小屏上的「怎么玩」)把行距压紧,最紧 16
+  const lh = m.small ? (lines.length ? Math.max(16, Math.min(21, (H - 16 - rest) / lines.length)) : 21) : 24;
+  const h = rest + lines.length * lh, y = (H - h) / 2, e = 1 - Math.pow(1 - m.a, 3);
   ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(.86 + .14 * e, .86 + .14 * e); ctx.translate(-W / 2, -H / 2); ctx.globalAlpha = m.a;
   // 一张大纸牌,顶上一条色带写标题:达标是金色,没达标是灰褐色,其余是红色
   plate(x, y, w, h, PAPER, 10, 5);
@@ -749,7 +779,7 @@ function drawModal() {
   }
   txt(m.title, W / 2, y + 23, 18, m.tone === 'ok' ? INK : PAPER, 'center', true);
   let cy = y + 70;
-  for (const s of lines) { txt(s, m.small ? x + 24 : W / 2, cy, m.small ? 12.5 : 14, INK, m.small ? 'left' : 'center'); cy += m.small ? 21 : lh; }
+  for (const s of lines) { txt(s, m.small ? x + 24 : W / 2, cy, m.small ? 12.5 : 14, INK, m.small ? 'left' : 'center'); cy += lh; }
   if (m.timer != null) { A.rr(ctx, x + 40, cy, w - 80, 8, 4); ctx.fillStyle = PAPER_D; ctx.fill(); A.rr(ctx, x + 40, cy, (w - 80) * (1 - m.timer / 1.6), 8, 4); ctx.fillStyle = GREEN; ctx.fill(); }
   if (m.grid) {   // 图鉴的格子:每格一张摊位图、名字和一句话作用;没解锁的变灰并写还差几晚
     m.grid.forEach((g, i) => {
@@ -799,7 +829,7 @@ const TUT = [
   { any: true, msg: '同名同级的摊位叠在一起会升级。\n摊位的顺序和搭配,就是这门生意的全部学问。祝生意兴隆!' },
 ];
 function startTut() { ui.tut = { step: 0, skip: null }; G.S.shop = ['kebab', 'tea', 'lamp', 'candy'].map(id => ({ id, sold: false })); }
-function endTut() { ui.tut = null; ui.combos = []; P.store.set('tut', '1'); persist(); }   // combos 置空:引导里摆出来的搭配,引导结束后提示一次
+function endTut() { ui.tut = null; ui.combos = []; ui.pats = []; P.store.set('tut', '1'); persist(); }   // combos 置空:引导里摆出来的搭配,引导结束后提示一次
 function nextTut() { ui.tut.step++; ui.tut.skip = null; if (ui.tut.step >= TUT.length) endTut(); }
 // 引导的指示箭头:金色粗箭头,up 为 true 时朝上指
 function pointer(x, y, up) {
@@ -870,6 +900,16 @@ function tick(dt) {
       next.push(key);
     }
     ui.combos = next;
+    if (!told) {   // 新凑成(或变长)的街型:同样一次提示一个
+      const prevP = ui.pats, nextP = []; let toldP = false;
+      for (const p of L.streetPatterns()) {
+        const key = p.k + ':' + p.uids.join(',') + ':' + p.heat, isNew = prevP && prevP.indexOf(key) < 0;
+        if (isNew && toldP) continue;
+        if (isNew) { toldP = true; toast(`凑成街型「${p.n}」,人气 +${p.heat}`, 2); sfx.merge(); }
+        nextP.push(key);
+      }
+      ui.pats = nextP;
+    }
   }
   const evKey = S.phase === 'day' && S.event ? S.night + S.event.k : '';   // 新的一晚碰上事件:等弹窗关掉后提示一次
   if (evKey && evKey !== ui.evKey && !ui.modal && !ui.tut && !S.arena) { ui.evKey = evKey; toast(S.event.boss ? `今晚是大考「${L.eventInfo().n}」,看下方说明` : `今晚碰上「${L.eventInfo().n}」,看下方说明`, 2.5); }
