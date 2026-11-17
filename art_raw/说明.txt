@@ -27,6 +27,8 @@
             perk_more / perk_big / perk_back / perk_price / perk_shout / perk_last
             perk_first / perk_rich / perk_cheap / perk_land / perk_tip
             perk_save / perk_tail / perk_supply / perk_queue / perk_set
+            perk_warm / perk_word / perk_cool / perk_pair
+            perk_xcombo / perk_xfew / perk_xfull / perk_xtop / perk_xmono(稀有)
             owner_none / owner_bbq / owner_sweet / owner_local / owner_rich / owner_star / owner_calc(摊主头像)
     底图    ui_btn_red / ui_btn_green / ui_btn_paper / ui_paper / ui_wood
             ui_ribbon_red / ui_ribbon_gold / ui_ribbon_gray

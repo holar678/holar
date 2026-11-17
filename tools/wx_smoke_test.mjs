@@ -57,7 +57,7 @@ tap(142, 702); tap(116, 290);        // 奶茶 → 下一格
 tap(232, 702); tap(44, 225);         // 灯牌 → 里排
 step('引导走到「开张营业」', seen('准备好了'));
 tap(277, 782);
-step('进入夜晚', until('今晚流水', 50));
+step('进入夜晚', until('今晚热度', 50));
 step('夜晚结束并结算', until('今晚达标'));
 for (let y = 300; y < 640 && !seen('选一条经营秘诀'); y += 12) tap(187, y);
 step('收摊后出现三选一', seen('选一条经营秘诀'));
@@ -70,6 +70,10 @@ step('引导结束后不再遮挡', !seen('祝生意兴隆'));
 tap(187, 560);                                                       // 随便点一下空地:每次点击后都会存档
 step('存档已写入', store.has('run') && JSON.parse(store.get('run')).night === 2);
 step('档案已写入', store.has('prof') && JSON.parse(store.get('prof')).cleared === 1);
-tap(277, 782); step('第二晚能开张并结算', until('营业额 ¥', 50) && (until('今晚达标', 6000) || seen('没达标')));
+// 第二晚起一晚分三波,每波之间有中场:看到「继续营业」就点一下
+const nightEnd = () => { for (let i = 0; i < 12000 && !seen('今晚达标') && !seen('没达标'); i++) { frames(1); if (seen('继续营业')) tap(187, 782); } return seen('今晚达标') || seen('没达标'); };
+tap(277, 782); step('第二晚能开张', until('今晚热度', 50));
+step('第二晚出现中场', until('中场休息', 6000));
+step('第二晚能打完并结算', nightEnd());
 console.log('  图片加载 ' + calls.images + ' 张 · 存储写入 ' + calls.storageSet + ' 次 · 震动 ' + calls.vibrate + ' 次 · 音频上下文 ' + calls.audio + ' 个');
 console.log(process.exitCode ? '有步骤没通过,见上面' : '微信模式下全部步骤通过');

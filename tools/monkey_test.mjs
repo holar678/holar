@@ -60,7 +60,7 @@ function check(step) {
   if (errors.length) fail('游戏报错:' + errors[0]);
   if (!Number.isFinite(S.money) || S.money < 0) fail('钱不对:' + S.money);
   if (!Number.isInteger(S.hearts) || S.hearts > 3 || S.hearts < 0) fail('生命不对:' + S.hearts);
-  if (!(S.night >= 1) || !['day', 'night', 'settle'].includes(S.phase)) fail('阶段不对:' + S.night + ' ' + S.phase);
+  if (!(S.night >= 1) || !['day', 'night', 'break', 'settle'].includes(S.phase)) fail('阶段不对:' + S.night + ' ' + S.phase);
   const pos = new Set();
   for (const s of S.stalls) {
     if (!L.DEF[s.id] || !(s.lvl >= 1 && s.lvl <= 3) || !(s.c >= 0 && s.c < L.COLS) || !(s.r >= 0 && s.r < L.ROWS)) fail('摊位数据不对:' + JSON.stringify(s));
@@ -87,6 +87,10 @@ function play() {
     if (m.grid && Math.random() < .5) return g.stallModal(m.grid[rnd(m.grid.length)].id);
     const bs = m.buttons.filter(b => !/重新开始/.test(b.label) || Math.random() < .04); if (!bs.length) return;
     return bs[rnd(bs.length)].fn();
+  }
+  if (S.phase === 'break') {   // 中场:一半的时候随手调整一下,然后继续营业
+    if (Math.random() < .5 && S.stalls.length) { const s = S.stalls[rnd(S.stalls.length)]; g.tapPlot(s.c, s.r); g.tapPlot(rnd(L.COLS), rnd(L.ROWS)); ui.sel = null; }
+    return L.nextWave();
   }
   if (S.phase !== 'day') return frames(150);
   if (ui.peek) return g.togglePeek();
