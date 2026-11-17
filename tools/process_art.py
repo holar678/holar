@@ -3,7 +3,8 @@
 把美术交来的原图处理成游戏能直接用的素材。
 
 用法(在放着 night-market-game 的那个文件夹里运行):
-    python tools/process_art.py
+    python tools/process_art.py                        全部重新处理(图多的时候要几分钟)
+    python tools/process_art.py perk_queue owner_star  只处理这几张(写文件名,不带扩展名和 _flip)
 
 做的事:
   1. 读 art_raw/ 里的每张图,按文件名开头判断类型:
@@ -56,7 +57,8 @@ EDGE = 0.12                                       # 贴图四周裁掉多少(水
 GLOW = {"cust_office_front": 45, "cust_office_back": 45, "cust_boy_front": 45, "cust_rich_front": 22, "cust_rich_back": 22}   # 背景上有一团和四周不一样的蓝(亮光、暗影、石头):顺着偏蓝的颜色多抠一圈。数字是「蓝比红多多少才算偏蓝」,暗影要调小。主体本身有大块蓝色的(蓝裙子、蓝书包)不要登记,会被一起抠掉
 THRESH_OF = {"stall_fridge": 22, "cust_rich_back": 20}                  # 主体颜色和背景太接近(深蓝底座配深蓝背景):容差调小
 HOLES = ("icon_heart_empty", "medal_1")           # 主体中间镂空、露出背景的地方也要抠掉
-CROP_AFTER = {"perk_cheap": (.2, .08, .8, .92)}   # 抠完后只留中间这一块(左、上、右、下,占整张图的比例):握手图两边的袖子伸到了图片外
+CROP_AFTER = {"perk_cheap": (.2, .08, .8, .92), "owner_star": (0, 0, .8, 1)}   # 抠完后只留这一块(左、上、右、下,占整张图的比例):握手图两边的袖子伸到了图片外;网红店主右边挂着一串装饰
+MULTI = {"perk_queue": .25}                       # 主体本来就是分开的几块(并排的三个小人):面积不小于最大块这个比例的都留下,不只留最大的一块
 
 
 def stall_ids():
@@ -78,20 +80,22 @@ def owner_ids():
     return re.findall(r"\{ k: '(\w+)'", body[:body.index("];")])
 
 
-def keep_main(alpha):
-    """只保留最大的那一块主体,去掉水印文字、角标、飘在外面的小物件。返回 (新的透明度, 去掉了几块)。"""
+def keep_main(alpha, ratio=None):
+    """只保留最大的那一块主体,去掉水印文字、角标、飘在外面的小物件。返回 (新的透明度, 去掉了几块)。
+    ratio: 主体本来就是分开的几块时(比如并排的几个小人)传一个比例,面积不小于最大块这个比例的都留下。"""
     small = alpha.resize((max(1, alpha.width // 4), max(1, alpha.height // 4)), Image.BILINEAR).point(lambda v: 255 if v > 60 else 0)
-    px = small.load(); w, h = small.size; best = (0, 0); val = 1
+    px = small.load(); w, h = small.size; best = (0, 0); val = 1; areas = {}
     for y in range(0, h, 2):
         for x in range(0, w, 2):
             if px[x, y] == 255 and val < 250:
                 ImageDraw.floodfill(small, (x, y), val)            # 给这一块涂上一个编号
-                area = small.histogram()[val]
+                area = small.histogram()[val]; areas[val] = area
                 if area > best[0]: best = (area, val)
                 val += 1
     if not best[1]: return alpha, 0
-    keep = small.point(lambda v: 255 if v == best[1] else 0).filter(ImageFilter.MaxFilter(5)).resize(alpha.size, Image.BILINEAR).point(lambda v: 255 if v > 0 else 0)
-    return ImageChops.darker(alpha, keep), val - 2
+    ok = set(v for v, a in areas.items() if v == best[1] or (ratio and a >= best[0] * ratio))
+    keep = small.point(lambda v: 255 if v in ok else 0).filter(ImageFilter.MaxFilter(5)).resize(alpha.size, Image.BILINEAR).point(lambda v: 255 if v > 0 else 0)
+    return ImageChops.darker(alpha, keep), val - 1 - len(ok)
 
 
 def near(rgb, color, tol):
@@ -122,7 +126,7 @@ def cutout(im, name="", glow=0):
             if reach.getpixel(s) == 255: ImageDraw.floodfill(reach, s, 128)
         bg = ImageChops.darker(bg, reach.point(lambda v: 0 if v == 128 else 255))
     alpha = bg.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.7))                                        # 收一圈边,去掉背景色的毛边
-    alpha, dropped = keep_main(alpha)
+    alpha, dropped = keep_main(alpha, MULTI.get(name))
     if dropped: warns.append("去掉了 %d 处和主体不相连的东西(水印、角标或飘在外面的小物件)" % dropped)
     out = rgb.convert("RGBA"); out.putalpha(alpha)
     box = alpha.point(lambda v: 255 if v > 40 else 0).getbbox()
@@ -186,8 +190,10 @@ def main():
     os.makedirs(RAW, exist_ok=True); os.makedirs(OUT, exist_ok=True)
     ids = stall_ids(); perks = perk_ids(); owners = owner_ids(); rows = []; stalls = []
     files = sorted(f for f in os.listdir(RAW) if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")) and not f.startswith("_"))
+    only = set(a.lower() for a in sys.argv[1:])   # 命令行后面写了名字(比如 perk_queue owner_star)就只重新处理这几张,省时间
     for f in files:
         stem = os.path.splitext(f)[0].lower(); flip = stem.endswith("_flip"); name = stem[:-5] if flip else stem
+        if only and name not in only: continue
         kind = name.split("_")[0]; im = Image.open(os.path.join(RAW, f)); warns = []
         if kind == "tile":
             # 贴图:四周各裁掉 12%(水印和角标都在边上),缩到 256,再上下左右各镜像一份拼成 512。镜像拼出来的图怎么平铺都没有接缝
@@ -251,6 +257,7 @@ def main():
         "// 这个文件由 tools/process_art.py 自动生成,不要手改。assets/ 里有哪些图片,游戏就加载哪些。\nexport default [%s];\n" % ", ".join("'%s'" % f for f in listed))
 
     # 检查图:上排大图看细节,下排是游戏里的实际大小
+    stalls = sorted(f for f in listed if f.startswith("stall_"))
     if stalls:
         n = len(stalls); sheet = Image.new("RGB", (max(1, n) * 170 + 10, 290), (26, 24, 44))
         for i, f in enumerate(stalls):

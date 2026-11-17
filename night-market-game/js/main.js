@@ -769,7 +769,7 @@ function drawModal() {
     const own = pk.icon ? 0 : L.perk(pk.p.k);   // 经营秘诀写「已有几个」;摊主不写
     ctx.globalAlpha = m.a * (pk.locked ? .5 : 1);
     plate(x + 16, cy, w - 32, 56, '#fff5df', 7, 2);
-    drawToken(pk.icon || 'perk_' + pk.p.k, x + 44, cy + 28, 36, INK);
+    drawToken(pk.icon || 'perk_' + pk.p.k, x + 44, cy + 28, pk.icon && pk.icon.indexOf('owner_') === 0 ? 48 : 36, INK);   // 摊主头像画大一点,不然看不清脸
     txt(pk.p.n + (pk.p.r ? ' · 稀有' : '') + (own ? `(已有 ${own} 级)` : ''), x + 72, cy + 19, 14, pk.p.r ? '#8a4fd0' : RED, 'left', true); txt(pk.note || pk.p.d, x + 72, cy + 39, 11.5, pk.locked ? BROWN : INK);
     ctx.globalAlpha = m.a;
     hit(x + 16, cy, w - 32, 58, pk.fn); cy += 66;
