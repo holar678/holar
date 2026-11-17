@@ -10,7 +10,6 @@ const GOLD = '#ffc94a', DIM = '#b9a98f', TXT = '#fbf3e2';
 const INK = '#2b1a12', PAPER = '#f6e7c8', PAPER_D = '#e6d2a8', WOOD = '#6b4027', WOOD_D = '#3a2216', RED = '#d24a35', GREEN = '#3f9163', WARM = '#c9b79a', BROWN = '#8a6a48';
 const ui = { sel: null, modal: null, toast: null, hits: [], t: 0, dark: .35, pops: [], coins: [], rings: [], money: 60, inc: 0, feed: [], speed: 1, cust: [], spawn: 0, gap: .3, endT: 0, peek: null, best: 0, pendingRival: null, lastAr: null };
 const pick = a => a[Math.random() * a.length | 0];
-const GATE_TEXT_Y = .74;   // 牌楼图里横匾中心离底边的高度占整张图的比例,换了牌楼图要按图调
 
 // ---------- 基础绘制 ----------
 const font = (px, b) => `${b ? 'bold ' : ''}${px}px "PingFang SC","Microsoft YaHei",sans-serif`;
@@ -52,7 +51,7 @@ const NINE_OF = { [PAPER]: 'ui_paper', '#fff5df': 'ui_paper', [PAPER_D]: 'ui_pap
 // 角画多大:按钮和木牌(192×96 的图)按高度等比,纸签(192×192)按短边的八分之一,限制在 6~14 之间
 const cornerOf = (img, w, h) => img === 'ui_paper' ? Math.max(6, Math.min(14, Math.min(w, h) / 8)) : h / 4;
 function plate(x, y, w, h, fill, r = 8, lift = 3, img = NINE_OF[fill]) {
-  if (img && A.image(img)) {
+  if (img && A.image(img) && !(img === 'ui_paper' && Math.min(w, h) < 36)) {   // 手撕纸签缩得太小边缘会毛糙:小牌子(顶栏的小按钮、提示条)仍用代码画
     const a = ctx.globalAlpha; if (fill === PAPER_D) ctx.globalAlpha = a * .55;   // 暗一号的纸(没解锁的图鉴格子)用半透明表示
     A.nine(ctx, img, x, y, w, h + lift, cornerOf(img, w, h)); ctx.globalAlpha = a; return;
   }
@@ -271,7 +270,7 @@ function updateNight(dt) {
   const sdt = dt * ui.speed; ui.spawn -= sdt;
   if (N.queue.length && ui.spawn <= 0) {
     ui.spawn = ui.gap; const c = L.newCust(N.queue.pop());
-    Object.assign(c, { x: l.streetX + l.sw / 2 + (Math.random() - .5) * l.sw * .5, y: l.gridY - 30, dir: 1, next: 0, look: A.pickLook(c.rich), seed: Math.random() * 9, shirt: pick(A.SHIRTS), hair: pick(A.HAIRS), skin: pick(A.SKINS), shirt2: pick(A.SHIRTS), hair2: pick(A.HAIRS), look2: A.pickLook(false) });
+    Object.assign(c, { x: l.streetX + l.sw / 2 + (Math.random() - .5) * l.sw * .5, y: l.gridY - 30, dir: 1, next: 0, look: A.pickLook(c.rich, c.kid), seed: Math.random() * 9, shirt: pick(A.SHIRTS), hair: pick(A.HAIRS), skin: pick(A.SKINS), shirt2: pick(A.SHIRTS), hair2: pick(A.HAIRS), look2: A.pickLook(false) });
     ui.cust.push(c);
   }
   const sp = (l.gridH + 56) / 2.6;
@@ -437,14 +436,15 @@ function drawScene() {
       }
       if (sel && sel.kind === 'stall' && sel.s === at) { ctx.strokeStyle = `rgba(255,215,90,${.6 + .4 * pulse})`; ctx.lineWidth = 2.5; ctx.stroke(); }
     } else {
-      ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+      if (A.image('tile_walk')) { ctx.fillStyle = 'rgba(8,7,18,.5)'; ctx.fill(); }   // 铺了地面贴图以后,没解锁的地块压暗一层,和能用的地块分开
+      ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
       if (day && L.canUnlock(c, r)) txt('+¥' + L.unlockCost(), p.x + p.w / 2, p.y + p.h / 2, 11, S.money >= L.unlockCost() ? '#b9f5cf' : DIM, 'center');
     }
     if (day) hit(p.x, p.y, p.w, p.h, () => tapPlot(c, r));
   }
-  // 街口牌楼:有 gate.png 就画图(2:1,横匾留空,字由这里写在横匾的位置),没有就画一道红横梁
+  // 街口牌楼:有 gate.png 就画图,立在街口正中;没有就画一道写着「夜市」的红横梁
   const gate = A.image('gate'), gcx = l.streetX + l.sw / 2;
-  if (gate) { const gh = 36, gw = gh * gate.width / gate.height; ctx.drawImage(gate, gcx - gw / 2, l.gridY - 6 - gh, gw, gh); txt('夜 市', gcx, l.gridY - 6 - gh * GATE_TEXT_Y, 11, '#ffe6a0', 'center', true); }
+  if (gate) { const gh = 46, gw = gh * gate.width / gate.height; ctx.drawImage(gate, gcx - gw / 2, l.gridY - 2 - gh, gw, gh); }   // 牌楼图太小,横匾里写不下字,就不写了
   else {
     A.rr(ctx, l.streetX - 4, l.gridY - 30, l.sw + 8, 20, 6); ctx.fillStyle = '#b8322a'; ctx.fill();
     ctx.fillStyle = '#e25a40'; ctx.fillRect(l.streetX - 4, l.gridY - 30, l.sw + 8, 4); txt('夜 市', gcx, l.gridY - 19, 12, '#ffe6a0', 'center', true);

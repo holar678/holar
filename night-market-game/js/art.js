@@ -11,10 +11,13 @@ export const IMAGE_FILES = ASSETS.slice();
 const IMG = {};
 export const image = name => IMG[name];
 // 给一位顾客随机挑一套形象(返回名字);没有顾客图片时返回 null,用代码画的小人
-export function pickLook(rich) {
+const KID_LOOKS = ['boy', 'girl', 'pupil'];   // 这几个形象是小孩:亲子夜里的小孩优先用它们
+export function pickLook(rich, kid) {
   const ids = Object.keys(IMG).map(k => (k.match(/^cust_(.+)_front$/) || [])[1]).filter(Boolean);
   if (rich) return ids.indexOf('rich') >= 0 ? 'rich' : null;
-  const normal = ids.filter(i => i !== 'rich'); return normal.length ? normal[Math.random() * normal.length | 0] : null;
+  let normal = ids.filter(i => i !== 'rich'); const kids = normal.filter(i => KID_LOOKS.indexOf(i) >= 0);
+  if (kid && kids.length) normal = kids;
+  return normal.length ? normal[Math.random() * normal.length | 0] : null;
 }
 export function loadImages(P) {
   for (const f of IMAGE_FILES) { const im = P.createImage(); im.onload = () => { IMG[f.replace(/\.\w+$/, '')] = im; }; im.src = 'assets/' + f; }
@@ -157,11 +160,13 @@ export function icon(ctx, name, x, y, size) {
 // 九宫格拉伸:原图四个角各 SLICE 像素保持原样,四条边和中间拉长。corner 是角在屏幕上画多大(设计稿单位)。
 // 有图返回 true;没图返回 false,由调用方用代码画
 const SLICE = 24;
+// 横幅两端的卷轴比 24 像素宽:左右各留 44 像素不拉伸(要和 tools/process_art.py 里的 SLICE_X 一致)
+const SLICE_X = { ui_ribbon_red: 44, ui_ribbon_gold: 44, ui_ribbon_gray: 44 };
 export function nine(ctx, name, x, y, w, h, corner) {
   const im = IMG[name]; if (!im) return false;
-  const s = SLICE, iw = im.width, ih = im.height, d = Math.min(corner, w / 2, h / 2), o = .5;   // o:相邻两块互相压住半个单位,缩放后不露缝
-  const sx = [0, s, iw - s], sw = [s, iw - 2 * s, s], sy = [0, s, ih - s], sh = [s, ih - 2 * s, s];
-  const dx = [x, x + d, x + w - d], dw = [d, w - 2 * d, d], dy = [y, y + d, y + h - d], dh = [d, h - 2 * d, d];
+  const s = SLICE, t = SLICE_X[name] || s, iw = im.width, ih = im.height, d = Math.min(corner, w / 2, h / 2), e = Math.min(d * t / s, w / 2), o = .5;   // o:相邻两块互相压住半个单位,缩放后不露缝
+  const sx = [0, t, iw - t], sw = [t, iw - 2 * t, t], sy = [0, s, ih - s], sh = [s, ih - 2 * s, s];
+  const dx = [x, x + e, x + w - e], dw = [e, w - 2 * e, e], dy = [y, y + d, y + h - d], dh = [d, h - 2 * d, d];
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
     if (dw[c] <= 0 || dh[r] <= 0) continue;
     const ex = c === 1 ? o : 0, ey = r === 1 ? o : 0;

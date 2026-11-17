@@ -36,7 +36,7 @@ THRESH = 40          # 抠图的颜色容差。背景抠不干净就调大,主�
 KINDS = {            # 类型: (画布宽, 画布高, 四周留白)
     "stall": (320, 320, 8),
     "cust": (96, 128, 4),
-    "gate": (320, 160, 4),
+    "gate": (200, 176, 4),
     "icon": (128, 128, 8),
     "perk": (128, 128, 8),
     "medal": (128, 128, 8),
@@ -50,6 +50,13 @@ UI_SIZE = {          # 九宫格底图: (宽, 高)。四角各 24 像素在游�
     "ui_ribbon_red": (384, 96), "ui_ribbon_gold": (384, 96), "ui_ribbon_gray": (384, 96),
 }
 SLICE = 24
+SLICE_X = {"ui_ribbon_red": 44, "ui_ribbon_gold": 44, "ui_ribbon_gray": 44}   # 横幅两端的卷轴比 24 像素宽:左右多留一些不拉伸(要和 art.js 里的 SLICE_X 一致)
+# ---- 个别原图需要的特殊处理(按文件名,不带 _flip 和扩展名) ----
+EDGE = 0.12                                       # 贴图四周裁掉多少(水印和角标在边上)
+GLOW = {"cust_office_front": 45, "cust_office_back": 45, "cust_boy_front": 45, "cust_rich_front": 22, "cust_rich_back": 22}   # 背景上有一团和四周不一样的蓝(亮光、暗影、石头):顺着偏蓝的颜色多抠一圈。数字是「蓝比红多多少才算偏蓝」,暗影要调小。主体本身有大块蓝色的(蓝裙子、蓝书包)不要登记,会被一起抠掉
+THRESH_OF = {"stall_fridge": 22, "cust_rich_back": 20}                  # 主体颜色和背景太接近(深蓝底座配深蓝背景):容差调小
+HOLES = ("icon_heart_empty", "medal_1")           # 主体中间镂空、露出背景的地方也要抠掉
+CROP_AFTER = {"perk_cheap": (.2, .08, .8, .92)}   # 抠完后只留中间这一块(左、上、右、下,占整张图的比例):握手图两边的袖子伸到了图片外
 
 
 def stall_ids():
@@ -87,17 +94,33 @@ def keep_main(alpha):
     return ImageChops.darker(alpha, keep), val - 2
 
 
-def cutout(im):
-    """去掉和四边相连的纯色背景,返回 RGBA 图和警告列表。"""
+def near(rgb, color, tol):
+    """和某个颜色接近的像素为白(三个通道的差加起来不超过 tol)。"""
+    r, g, b = ImageChops.difference(rgb, Image.new("RGB", rgb.size, color)).split()
+    return ImageChops.add(ImageChops.add(r, g), b).point(lambda v: 255 if v <= tol else 0)
+
+
+def cutout(im, name="", glow=0):
+    """去掉和四边相连的纯色背景,返回 RGBA 图和警告列表。glow: 背景上有一团比四周亮的蓝光时(人物图常见),把这团光也去掉。"""
     warns = []
     if im.mode == "RGBA" and im.getchannel("A").getextrema()[0] < 250:
         return im, warns                                   # 本来就是透明底
     rgb = im.convert("RGB"); work = rgb.copy(); w, h = work.size
     seeds = [(x, y) for x in range(1, w - 1, max(1, w // 16)) for y in (1, h - 2)] + [(x, y) for y in range(1, h - 1, max(1, h // 16)) for x in (1, w - 2)]
-    for s in seeds:
+    cols = [rgb.getpixel(s) for s in seeds]
+    ref = tuple(sorted(c[i] for c in cols)[len(cols) // 2] for i in range(3))     # 背景色:四边取样的中位数
+    for s, c in zip(seeds, cols):
+        if sum(abs(c[i] - ref[i]) for i in range(3)) > 110: continue              # 这个取样点落在了伸到图片边缘的主体上,不能从这里开始抠
         if work.getpixel(s) != KEY:
-            ImageDraw.floodfill(work, s, KEY, thresh=THRESH)
+            ImageDraw.floodfill(work, s, KEY, thresh=THRESH_OF.get(name, THRESH))
     bg = ImageChops.difference(work, Image.new("RGB", work.size, KEY)).convert("L").point(lambda v: 0 if v == 0 else 255)   # 主体为白
+    if name in HOLES: bg = ImageChops.darker(bg, ImageChops.invert(near(rgb, ref, 90)))
+    if glow:   # 从已经抠掉的背景出发,顺着「明显偏蓝」的像素继续往里抠
+        r, g, b = rgb.split(); blue = ImageChops.subtract(b, r).point(lambda v: 255 if v >= glow else 0)
+        reach = ImageChops.lighter(ImageChops.invert(bg), blue)
+        for s in ((1, 1), (w - 2, 1), (1, h - 2), (w - 2, h - 2)):
+            if reach.getpixel(s) == 255: ImageDraw.floodfill(reach, s, 128)
+        bg = ImageChops.darker(bg, reach.point(lambda v: 0 if v == 128 else 255))
     alpha = bg.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.7))                                        # 收一圈边,去掉背景色的毛边
     alpha, dropped = keep_main(alpha)
     if dropped: warns.append("去掉了 %d 处和主体不相连的东西(水印、角标或飘在外面的小物件)" % dropped)
@@ -110,15 +133,28 @@ def cutout(im):
     return out, warns
 
 
+def cut_pegs(im):
+    """按钮底图:裁掉顶上比板子窄的部分(挂板子的木桩)。它们在边的中间,拉伸时会被拉成一长条。"""
+    a = im.getchannel("A"); rows = list(a.resize((1, a.height), Image.BOX).tobytes()); top = 0
+    while top < len(rows) // 2 and rows[top] < .8 * max(rows): top += 1
+    return im.crop((0, top, im.width, im.height))
+
+
+def mirror_top(im):
+    """纸签底图:顶边中间有缺口,拉伸后会变成一道怪线。把下半张上下翻转过来当上半张用。"""
+    half = im.crop((0, im.height - im.height // 2, im.width, im.height)).transpose(Image.FLIP_TOP_BOTTOM)
+    out = im.copy(); out.paste(half, (0, 0)); return out
+
+
 def trim(im):
     box = im.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
     return im.crop(box) if box else im
 
 
-def nine_slice(im, w, h, d):
-    """按游戏里的规则把九宫格底图拉到 w x h,角画成 d 像素。用来出检查图。"""
-    s = SLICE; iw, ih = im.size; d = int(min(d, w // 2, h // 2)); out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    sx = [0, s, iw - s, iw]; sy = [0, s, ih - s, ih]; dx = [0, d, w - d, w]; dy = [0, d, h - d, h]
+def nine_slice(im, w, h, d, sxw=SLICE):
+    """按游戏里的规则把九宫格底图拉到 w x h,角画成 d 像素(sxw: 左右两端各留多宽不拉伸)。用来出检查图。"""
+    s = SLICE; iw, ih = im.size; d = int(min(d, w // 2, h // 2)); e = int(min(d * sxw / s, w // 2)); out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    sx = [0, sxw, iw - sxw, iw]; sy = [0, s, ih - s, ih]; dx = [0, e, w - e, w]; dy = [0, d, h - d, h]
     for r in range(3):
         for c in range(3):
             tw, th = dx[c + 1] - dx[c], dy[r + 1] - dy[r]
@@ -153,21 +189,33 @@ def main():
     for f in files:
         stem = os.path.splitext(f)[0].lower(); flip = stem.endswith("_flip"); name = stem[:-5] if flip else stem
         kind = name.split("_")[0]; im = Image.open(os.path.join(RAW, f)); warns = []
-        if kind == "tile" or name == "share_cover":
-            size = (256, 256) if kind == "tile" else (500, 400)
-            if kind != "tile" and abs(im.width / im.height - 1.25) > .15: warns.append("转发封面要 5:4,原图是 %dx%d,会被拉变形" % im.size)
-            im.convert("RGB").resize(size, Image.LANCZOS).save(os.path.join(OUT, name + ".jpg"), quality=85)
+        if kind == "tile":
+            # 贴图:四周各裁掉 12%(水印和角标都在边上),缩到 256,再上下左右各镜像一份拼成 512。镜像拼出来的图怎么平铺都没有接缝
+            rgb = im.convert("RGB"); w, h = rgb.size
+            t = rgb.crop((int(w * EDGE), int(h * EDGE), int(w * (1 - EDGE)), int(h * (1 - EDGE)))).resize((256, 256), Image.LANCZOS)
+            big = Image.new("RGB", (512, 512)); big.paste(t, (0, 0)); big.paste(t.transpose(Image.FLIP_LEFT_RIGHT), (256, 0))
+            big.paste(t.transpose(Image.FLIP_TOP_BOTTOM), (0, 256)); big.paste(t.transpose(Image.ROTATE_180), (256, 256))
+            big.save(os.path.join(OUT, name + ".jpg"), quality=82)
+            rows.append((f, name + ".jpg", os.path.getsize(os.path.join(OUT, name + ".jpg")), warns)); continue
+        if name == "share_cover":
+            # 转发封面要 5:4:比它宽就裁左右,比它高就裁上下,取正中
+            rgb = im.convert("RGB"); w, h = rgb.size
+            if w / h > 1.25: cw2 = int(h * 1.25); rgb = rgb.crop(((w - cw2) // 2, 0, (w - cw2) // 2 + cw2, h)); warns.append("原图比 5:4 宽,左右各裁掉了一些")
+            elif w / h < 1.25: ch2 = int(w / 1.25); rgb = rgb.crop((0, (h - ch2) // 2, w, (h - ch2) // 2 + ch2)); warns.append("原图比 5:4 高,上下各裁掉了一些")
+            rgb.resize((500, 400), Image.LANCZOS).save(os.path.join(OUT, name + ".jpg"), quality=85)
             rows.append((f, name + ".jpg", os.path.getsize(os.path.join(OUT, name + ".jpg")), warns)); continue
         if name == "app_icon":
-            pub = os.path.join(ROOT, "上架素材"); os.makedirs(pub, exist_ok=True)
-            im.convert("RGB").resize((512, 512), Image.LANCZOS).save(os.path.join(pub, "app_icon.png"), optimize=True)
+            pub = os.path.join(ROOT, "上架素材"); os.makedirs(pub, exist_ok=True); w, h = im.size
+            im.convert("RGB").crop((int(w * .1), int(h * .1), int(w * .9), int(h * .9))).resize((512, 512), Image.LANCZOS).save(os.path.join(pub, "app_icon.png"), optimize=True)   # 四周裁掉一成:水印和角标在边上
             rows.append((f, "上架素材/app_icon.png", os.path.getsize(os.path.join(pub, "app_icon.png")), ["不进游戏包,到微信公众平台上传"])); continue
         if kind == "ui":
             if name not in UI_SIZE:
                 rows.append((f, "跳过", 0, ["不认识的底图名,可用的是:" + "、".join(UI_SIZE)])); continue
             cw, ch = UI_SIZE[name]
-            rgba, w2 = cutout(im.convert("RGBA") if im.mode != "RGBA" else im); warns += w2
+            rgba, w2 = cutout(im.convert("RGBA") if im.mode != "RGBA" else im, name); warns += w2
             rgba = trim(rgba)
+            if name.startswith("ui_btn_"): rgba = cut_pegs(rgba)
+            if name == "ui_paper": rgba = mirror_top(rgba)
             if abs(rgba.width / rgba.height - cw / ch) > .25 * cw / ch:
                 warns.append("抠出来的主体是 %dx%d,和规定的 %dx%d 比例差得多,拉伸后会变形" % (rgba.width, rgba.height, cw, ch))
             if min(rgba.size) < min(cw, ch) * .8: warns.append("原图太小,放大后会糊")
@@ -188,7 +236,9 @@ def main():
             warns.append("顾客图的文件名要以 _front 或 _back 结尾")
         cw, ch, pad = KINDS[kind]
         if min(im.size) < cw: warns.append("原图只有 %dx%d,比需要的 %dx%d 小,放大后会糊" % (im.width, im.height, cw, ch))
-        rgba, w2 = cutout(im.convert("RGBA") if im.mode != "RGBA" else im); warns += w2
+        rgba, w2 = cutout(im.convert("RGBA") if im.mode != "RGBA" else im, name, GLOW.get(name, 0)); warns += w2
+        if name in CROP_AFTER:
+            l, t, r, b = CROP_AFTER[name]; rgba = rgba.crop((int(l * rgba.width), int(t * rgba.height), int(r * rgba.width), int(b * rgba.height)))
         if flip: rgba = rgba.transpose(Image.FLIP_LEFT_RIGHT)
         canvas, _ = fit(rgba, cw, ch, pad, kind in CENTERED)
         size = save_png(canvas, os.path.join(OUT, name + ".png"))
@@ -223,7 +273,7 @@ def main():
             im = Image.open(os.path.join(OUT, f)).convert("RGBA"); y = 235 + j * 130; x = 10; paper = f == "ui_paper.png"
             for w, h in ((52, 23), (84, 52), (300, 56)) if paper else ((52, 21), (84, 40), (300, 44)):
                 d = max(6, min(14, min(w, h) / 8)) if paper else h / 4
-                piece = nine_slice(im, w * 2, h * 2, d * 2); sheet.paste(piece, (x, y), piece); x += w * 2 + 20
+                piece = nine_slice(im, w * 2, h * 2, d * 2, SLICE_X.get(f[:-4], SLICE)); sheet.paste(piece, (x, y), piece); x += w * 2 + 20
         sheet.save(os.path.join(RAW, "_检查图_界面.png"))
 
     print("处理了 %d 张原图,assets/ 里现在有 %d 个文件,共 %.0f KB" % (len(files), len(listed), sum(os.path.getsize(os.path.join(OUT, f)) for f in listed) / 1024))

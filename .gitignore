@@ -9,6 +9,14 @@ project.private.config.json
 # 美术处理过程中的临时文件
 art_raw/_测试样例/
 art_raw/_检查图.png
+art_raw/_检查图_界面.png
+
+# 美术原图暂时不进仓库:现在这批带水印,每张约 3MB。等拿到无水印的正式导出再放开。
+# (早先已经在仓库里的 5 张旧原图不受这条影响)
+art_raw/*.png
+art_raw/*.jpg
+art_raw/*.jpeg
+art_raw/*.webp
 
 # 运行时产生的缓存
 __pycache__/
