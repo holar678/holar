@@ -76,7 +76,7 @@ function btn(x, y, w, h, label, kind, fn, dis) {
   txt(label, x + w / 2, y + h / 2 + 1, h > 40 ? 15 : 13, c[1], 'center', true); ctx.globalAlpha = 1; hit(x, y, w, h + 3, fn);
 }
 // 支援摊名牌上写的作用,随等级变化
-const SUP_INFO = { lamp: n => `吸引+${20 * n}%`, fridge: n => `饮甜+${50 * n}%`, grill: n => `小吃+${40 * n}%`, cat: n => `每单+¥${2 * n}` };
+const SUP_INFO = { lamp: n => `吸引+${Math.round(20 * L.supK(n))}%`, fridge: n => `饮甜+${Math.round(50 * L.supK(n))}%`, grill: n => `小吃+${Math.round(40 * L.supK(n))}%`, cat: n => `每单+¥${2 * L.supK(n)}` };
 
 // ---------- 玩家档案(跨局保存):最高纪录、累计过关晚数、音效开关 ----------
 const prof = Object.assign({ best: 0, cleared: 0, medal: 0, stake: 1, combos: [], ach: [], wonWith: [], sound: true, streak: 0, lastDay: 0, daily: { day: 0, tries: 0, extra: 0, best: 0, medal: 0 } }, (() => { try { return JSON.parse(P.store.get('prof')) || {}; } catch (e) { return {}; } })());
@@ -596,7 +596,7 @@ function stallModal(id) {
   ui.modal = {
     title: d.n, small: true,
     lines: (need ? [`还没解锁:解锁进度还差 ${need}(主线每过一晚 +1,成就、每日挑战奖牌也会加),到了就会出现在进货里`] : [])
-      .concat([d.sup ? '支援摊:自己不卖东西,给同侧周围一圈的摊位加成。升级后加成翻倍' : `${CAT_NAME[d.cat]} · 售价 ¥${d.p} · 吸引力 ${Math.round(d.a * 100)}% · 进货价 ¥${d.cost}`, d.d].concat(d.s3 ? ['升到 3 级的招牌技:' + d.s3] : [], ['怎么摆:' + HINT[id]]), L.COMBOS.filter(c => comboFound(c) && c.a.concat(c.b).indexOf(id) >= 0).map(c => `搭配「${c.n}」${c.d}`)),
+      .concat([d.sup ? '支援摊:自己不卖东西,给同侧周围一圈的摊位加成。2 级加成 ×1.5,3 级 ×2' : `${CAT_NAME[d.cat]} · 售价 ¥${d.p} · 吸引力 ${Math.round(d.a * 100)}% · 进货价 ¥${d.cost}`, d.d].concat(d.s3 ? ['升到 3 级的招牌技:' + d.s3] : [], ['怎么摆:' + HINT[id]]), L.COMBOS.filter(c => comboFound(c) && c.a.concat(c.b).indexOf(id) >= 0).map(c => `搭配「${c.n}」${c.d}`)),
     buttons: [{ label: '返回图鉴', kind: 'pri', fn: codexModal }]
   };
 }
@@ -826,7 +826,7 @@ function drawPanel() {
       if (stall) btn(W - 94, y + 17, 76, 28, `退货 +¥${L.sellVal(sel.s)}`, 'pri', () => { L.sell(sel.s); ui.sel = null; sfx.place(); });
     } else {
       const gi = L.goalInfo();   // 今晚有小目标时,第一行换成小目标
-      txt(gi ? `小目标:${gi.text},奖 ¥${gi.reward}` : '点卡片选货,再点地块摆放。点已摆的摊位可以挪动。', 20, y + 24, 11.5, INK, 'left', true);
+      txt(gi ? `小目标:${gi.text},奖流水三成` : '点卡片选货,再点地块摆放。点已摆的摊位可以挪动。', 20, y + 24, 11.5, INK, 'left', true);
       const ev = L.eventInfo();   // 今晚有事件时,第二行换成事件说明
       const nb = L.nextBoss();
       if (ev) txt(wrap(ev.boss ? `今晚大考「${ev.n}」:${ev.d}` : `今晚${ev.n}:${ev.d}`, 335, 11)[0], 20, y + 42, 11, RED, 'left', true);

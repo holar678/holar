@@ -48,7 +48,7 @@ for (let g = 0; g < N; g++) {
   L.newGame(OWNER, STAKE); let guard = 0;
   while (guard++ < 40) {
     const S = G.S, n = S.night; day(); const inc = L.quickSim(1), T = L.target(); ratio[n - 1].push(inc / T); incs[n - 1].push(inc); flows[n - 1].push(L.quickSim.flow); mults[n - 1].push(L.quickSim.mult);
-    const res = L.settle(CAL || inc >= T, L.quickSim.flow + (inc >= T ? L.overBonus(L.overStars(inc, T), T) : 0));   // 进口袋的是流水(不是热度),达标后再加超额奖励
+    const res = L.settle(CAL || inc >= T, L.quickSim.flow + (inc >= T ? L.overBonus(L.overStars(inc, T), L.quickSim.flow) : 0) + L.interestOf() + (G.S.night >= 2 ? Math.round(L.goalReward(L.quickSim.flow) / 2) : 0));   // 进口袋的是流水(不是热度),达标后再加超额奖励
     if (res === 'win') { wins++; reach[MAXN]++; break; }
     if (res === 'over') { reach[n - 1]++; break; }
     if (res === 'perk') pickPerk();

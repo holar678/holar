@@ -1,11 +1,17 @@
 // 游戏规则。不依赖任何渲染或平台接口,换引擎时这个文件可以原样带走。
 export const COLS = 4, ROWS = 6, MAXN = 10;
-export const LV = [1, 2, 4, 6];   // 第 4 级是「老字号」:不能叠出来,只能白天花钱从 3 级升(makeOld)
+export const LV = [1, 2, 4, 6];
+// 支援摊(灯牌、冰柜、炭炉、招财猫)的加成按等级乘这个数。原来是 1/2/3/4 倍,3 级冰柜给周围饮品甜品 +150%,太强;现在高等级递减
+export const SUP_LV = [1, 1.5, 2, 2.5];
+export const supK = lvl => SUP_LV[lvl - 1] || 1;   // 第 4 级是「老字号」:不能叠出来,只能白天花钱从 3 级升(makeOld)
 // 每晚的热度目标(热度 = 流水 × 人气)。2026-11-18 收紧过一次:原来按「随手摆」的自动试玩定,认真摆的人后几晚能到目标的十几二十倍,
 // 没有压力。现在用两种自动试玩一起定(tools/balance_smart.mjs):「会摆」的(挪摊位凑搭配、街型,挑秘诀,后期买老字号和秘诀升级)
 // 通关约七成,每晚热度中位数约为目标的 3~4 倍(第 10 晚约 2.5 倍),还有冲星的空间。第 3、6、9、10 晚是大考,有额外的限制。
 // 同一天又加了第 1 晚保底货、没达标保底进账、老字号和秘诀升级,前中期跟着再收紧了一次(原来是 25, 90, 220, 1200, 5000, 10000, 50000, 85000, 110000, 160000)
-export const TARGET = [50, 300, 800, 3500, 11000, 20000, 80000, 140000, 160000, 230000];
+// 同一天第三次:真人试玩 0.9.3 时每晚热度是目标的 4~14 倍。把稀有秘诀改成相加、支援摊高等级递减、小目标和超额奖励改成按流水给以后重新定:
+// 「会摆」的新玩家通关约 46%、累计 30 晚约 33%,每晚中位数约为目标的 1.4~2.2 倍;真人试玩比「会摆」强不少(上次约在它的前一成),应该还有冲星的余地
+// (上一组是 50, 300, 800, 3500, 11000, 20000, 80000, 140000, 160000, 230000)
+export const TARGET = [60, 450, 1500, 6500, 18000, 32000, 110000, 180000, 160000, 200000];
 const INFL = 1.4; // 物价每晚上涨的倍率,防止后期钱花不完
 
 // s3: 升到 3 级后多出来的「招牌技」(只有售卖摊有),效果在 trySell 和 statOf 里按摊位写
@@ -58,13 +64,14 @@ export const PERKS = [
   { k: 'cool', e: '🥤', n: '解渴名店', d: '口渴连击时,人气多涨 0.1' },
   { k: 'pair', e: '🧩', n: '好搭档', d: '每组招牌搭配,开张时人气多 +0.2' },
   { k: 'pat', e: '🏘️', n: '街坊名声', d: '街型给的人气 +50%' },
-  // ---- 稀有(r: 1):把人气再乘一次。只有一级,不能叠 ----
-  { k: 'xcombo', e: '⛓️', n: '连锁招牌', r: 1, d: '每组生效的招牌搭配,人气 ×1.2' },
-  { k: 'xfew', e: '💎', n: '小而精', r: 1, d: '靠街摊位不超过 6 个时,人气 ×1.8' },
-  { k: 'xfull', e: '🎪', n: '一条龙', r: 1, d: '靠街 12 个位置全摆满时,人气 ×1.6' },
-  { k: 'xtop', e: '👑', n: '名摊云集', r: 1, d: '每个 3 级的靠街摊位,人气 ×1.15' },
-  { k: 'xmono', e: '🏷️', n: '专卖街', r: 1, d: '靠街摊位不超过 2 个品类时,人气 ×1.6' },
-  { k: 'xpat', e: '🗺️', n: '街区名片', r: 1, d: '每成立一种街型,人气 ×1.2' },
+  // ---- 稀有(r: 1):给「稀有倍数」加数,热度最后再乘这个倍数。只有一级,不能叠 ----
+  // 2026-11-18 起几条稀有秘诀的加成是相加的(倍数从 ×1 起,各条加多少就是多少);原来是互相再乘,两条叠起来能到 ×4 以上
+  { k: 'xcombo', e: '⛓️', n: '连锁招牌', r: 1, d: '每组生效的招牌搭配,稀有倍数 +0.2' },
+  { k: 'xfew', e: '💎', n: '小而精', r: 1, d: '靠街摊位不超过 6 个时,稀有倍数 +0.6' },
+  { k: 'xfull', e: '🎪', n: '一条龙', r: 1, d: '靠街 12 个位置全摆满时,稀有倍数 +0.5' },
+  { k: 'xtop', e: '👑', n: '名摊云集', r: 1, d: '每个 3 级以上的靠街摊位,稀有倍数 +0.1' },
+  { k: 'xmono', e: '🏷️', n: '专卖街', r: 1, d: '靠街摊位不超过 2 个品类时,稀有倍数 +0.5' },
+  { k: 'xpat', e: '🗺️', n: '街区名片', r: 1, d: '每成立一种街型,稀有倍数 +0.15' },
 ];
 // 秘诀最多带 PERK_SLOTS 种,同一种最多叠到 PERK_MAX 级(稀有的只有 1 级)。once 的秘诀(地摊执照)当场生效,不占栏位
 export const PERK_SLOTS = 5, PERK_MAX = 3, RARE_CHANCE = 0.25;
@@ -130,7 +137,8 @@ export const STAKES = [
 ];
 export const stake = () => G.S.arena ? 1 : G.S.stake || 1;
 
-// 每晚小目标:主线从第 2 晚起,每晚给一个可做可不做的目标,做到了结算时多拿一笔钱(当晚目标的三成)。
+// 每晚小目标:主线从第 2 晚起,每晚给一个可做可不做的目标,做到了结算时多拿一笔钱:当晚流水的三成(至少 ¥10,跟着物价涨)。
+// 原来按「当晚目标的三成」给,目标是热度、热度又是流水乘人气,后期奖励比流水本身还多;改成按流水,奖励永远不会压过流水
 // n: 要做到的数量;d: 说明;v: 从当晚的统计里读出现在做到了多少
 export const GOALS = [
   { k: 'thirst', n: () => 2 + Math.floor(G.S.night / 2), d: n => `口渴连击 ${n} 次`, v: N => N.thirst },
@@ -140,16 +148,17 @@ export const GOALS = [
   { k: 'cats', n: () => G.S.night < 5 ? 3 : 4, d: n => `卖出 ${n} 个不同品类`, v: N => Object.keys(N.catSet).length },
 ];
 const GOAL_REWARD = 0.3;
+export const goalReward = flow => Math.max(Math.round(10 * infl()), Math.round(flow * GOAL_REWARD));
 function rollGoal() {
   const S = G.S; if (S.arena || S.night < 2) { S.goal = null; return; }
   const last = S.goal && S.goal.k, pool = GOALS.filter(g => g.k !== last), g = pool[Math.random() * pool.length | 0];
-  S.goal = { k: g.k, n: g.n(), reward: Math.max(10, Math.round(targetOf(S.night) * GOAL_REWARD / 5) * 5) };
+  S.goal = { k: g.k, n: g.n() };
 }
 // 当前小目标的说明和进度,没有时返回 null
 export function goalInfo() {
   const g = G.S.goal, def = g && GOALS.find(x => x.k === g.k); if (!def || G.S.arena) return null;
   const cur = G.N && G.N.earn ? Math.round(def.v(G.N) * 10) / 10 : 0;
-  return { text: def.d(g.n), cur: Math.min(cur, g.n), n: g.n, reward: g.reward, done: cur >= g.n };
+  return { text: def.d(g.n), cur: Math.min(cur, g.n), n: g.n, reward: goalReward(G.N ? G.N.flow : 0), done: cur >= g.n };
 }
 // 当晚的统计:小目标用的几项,加上流水、人气、稀有秘诀的倍数;hThirst / hMaxed / hMid 是口渴连击、买满、中场补上的人气各涨了多少(结算时列明细)
 const counters = () => ({ thirst: 0, maxed: 0, earn: {}, catSet: {}, flow: 0, heat: 1, xmult: 1, hThirst: 0, hMaxed: 0, hMid: 0, kinds: 0 });
@@ -421,10 +430,11 @@ export function statOf(s) {
   const bk = G.S.event && G.S.event.k;
   for (const o of around(s)) {
     if (bk === 'blackout' && DEF[o.id].sup) continue;   // 大考「停电」:支援摊失效
-    if (o.id === 'lamp') aMul += 0.2 * o.lvl;
-    if (o.id === 'fridge' && (d.cat === 'drink' || d.cat === 'sweet')) pm += 0.5 * o.lvl;
-    if (o.id === 'grill' && d.cat === 'food') pm += 0.4 * o.lvl;
-    if (o.id === 'cat') flat += 2 * o.lvl;
+    const k = supK(o.lvl);
+    if (o.id === 'lamp') aMul += 0.2 * k;
+    if (o.id === 'fridge' && (d.cat === 'drink' || d.cat === 'sweet')) pm += 0.5 * k;
+    if (o.id === 'grill' && d.cat === 'food') pm += 0.4 * k;
+    if (o.id === 'cat') flat += 2 * k;
     if (o.id === 'tofu' && o.lvl < 3 && d.cat !== 'food') aMul -= 0.3;   // 3 级臭豆腐不再熏邻摊
   }
   pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price')) * (1 + REGULAR * grown('regular'));   // 秘诀「熟客」:每营业一晚永久涨一点
@@ -485,13 +495,13 @@ function calcOpen(stats) {
   const pats = streetPatterns(), kinds = new Set(pats.map(p => p.k)).size, r2 = v => Math.round(v * 100) / 100;
   const parts = { base: 1, perk: r2(0.3 * perk('warm') + grown('fame')), combo: r2(combos * (HEAT.combo + 0.2 * perk('pair'))), pat: r2(pats.reduce((a, p) => a + p.heat, 0)) };
   const heat = r2(parts.base + parts.perk + parts.combo + parts.pat);
-  let x = 1;
-  if (perk('xpat')) x *= Math.pow(1.2, kinds);
-  if (perk('xcombo')) x *= Math.pow(1.2, combos);
-  if (perk('xfew') && front.length && front.length <= 6) x *= 1.8;
-  if (perk('xfull') && front.length >= 12) x *= 1.6;
-  if (perk('xtop')) x *= Math.pow(1.15, front.filter(s => s.lvl >= 3).length);
-  if (perk('xmono') && front.length && new Set(front.map(s => catKey(s.id))).size <= 2) x *= 1.6;
+  let x = 1;   // 稀有倍数:各条稀有秘诀的加成相加
+  if (perk('xpat')) x += 0.15 * kinds;
+  if (perk('xcombo')) x += 0.2 * combos;
+  if (perk('xfew') && front.length && front.length <= 6) x += 0.6;
+  if (perk('xfull') && front.length >= 12) x += 0.5;
+  if (perk('xtop')) x += 0.1 * front.filter(s => s.lvl >= 3).length;
+  if (perk('xmono') && front.length && new Set(front.map(s => catKey(s.id))).size <= 2) x += 0.5;
   return { heat, xmult: Math.round(x * 100) / 100, parts, pats, kinds };
 }
 // 开张:把上面算出来的数写进当晚状态。open 记下开张时的人气,中场挪了摊位以后用它算「新凑成的搭配、街型该补多少」
@@ -598,13 +608,14 @@ export const interestOf = () => G.S.arena ? 0 : Math.min(Math.floor(G.S.money / 
 // 让已经稳过的晚上也值得把摆法再抠一抠
 export const OVER = [1.5, 2, 3];
 export const overStars = (inc, T = target()) => G.S.arena || !T ? 0 : OVER.filter(x => inc >= x * T).length;
-export const overBonus = (stars, T = target()) => stars * Math.max(5, Math.round(T * 0.05 / 5) * 5);
+// 超额奖励:每颗星给当晚流水的一成(至少 ¥5,跟着物价涨)。原来按目标的 5% 给,和小目标一样后期会压过流水
+export const overBonus = (stars, flow) => stars * Math.max(Math.round(5 * infl()), Math.round(flow * 0.1));
 export const wantsBack = c => !c.ret && c.buys < capOf(c) && Math.random() < 0.25 * perk('back');
 export function finishNight() {
   const S = G.S, T = target(), inc = G.N.income; S.phase = 'settle';
   const N = G.N, src = Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid });   // 人气的来源明细
   const ok = S.arena ? inc > T : inc >= T, stars = ok ? overStars(inc, T) : 0;
-  return { ok, inc, T, stars, over: overBonus(stars, T), flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
+  return { ok, inc, T, stars, over: overBonus(stars, G.N.flow), flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
 }
 // 进入下一晚的白天。普通模式里第 10 晚没过则重打第 10 晚;无尽模式一直往后
 export function nextDay() {

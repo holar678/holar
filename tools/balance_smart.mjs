@@ -102,7 +102,7 @@ for (let g = 0; g < NG; g++) {
   while (guard++ < 40) {
     const S = G.S, n = S.night; day(); const inc = L.quickSim(1), T = L.target();
     incs[n - 1].push(inc); ratio[n - 1].push(inc / T);
-    const ok = CAL || inc >= T, res = L.settle(ok, L.quickSim.flow + (inc >= T ? L.overBonus(L.overStars(inc, T), T) : 0));
+    const ok = CAL || inc >= T, res = L.settle(ok, L.quickSim.flow + (inc >= T ? L.overBonus(L.overStars(inc, T), L.quickSim.flow) : 0) + L.interestOf() + (G.S.night >= 2 ? Math.round(L.goalReward(L.quickSim.flow) / 2) : 0));
     if (res === 'win') { wins++; break; }
     if (res === 'over') break;
     if (res === 'perk') pickPerk();
