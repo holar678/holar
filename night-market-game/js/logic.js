@@ -1,11 +1,11 @@
 // 游戏规则。不依赖任何渲染或平台接口,换引擎时这个文件可以原样带走。
 export const COLS = 4, ROWS = 6, MAXN = 10;
-export const LV = [1, 2, 4];
-// 每晚的热度目标(热度 = 流水 × 人气),按自动试玩(随手乱摆、不讲究顺序)的热度分布定的:
-// 取的是自动试玩热度分布里偏低的一档(大约第 15 百分位;第 10 晚取第 25 百分位),所以乱摆也有八成多能过前九晚、七成多能过第 10 晚。
-// 第 3、6、9、10 晚是大考,有额外的限制,所以这几晚的目标涨得慢。热度是乘出来的,好坏局差距很大,真人认真摆会远高于目标
-// 2026-11-17 加了街型以后人气整体高了一些(后几晚约 +25%),第 4 晚起的目标跟着上调
-export const TARGET = [25, 75, 150, 500, 1700, 4100, 10500, 15000, 17500, 26000];
+export const LV = [1, 2, 4, 6];   // 第 4 级是「老字号」:不能叠出来,只能白天花钱从 3 级升(makeOld)
+// 每晚的热度目标(热度 = 流水 × 人气)。2026-11-18 收紧过一次:原来按「随手摆」的自动试玩定,认真摆的人后几晚能到目标的十几二十倍,
+// 没有压力。现在用两种自动试玩一起定(tools/balance_smart.mjs):「会摆」的(挪摊位凑搭配、街型,挑秘诀,后期买老字号和秘诀升级)
+// 通关约七成,每晚热度中位数约为目标的 3~4 倍(第 10 晚约 2.5 倍),还有冲星的空间。第 3、6、9、10 晚是大考,有额外的限制。
+// 同一天又加了第 1 晚保底货、没达标保底进账、老字号和秘诀升级,前中期跟着再收紧了一次(原来是 25, 90, 220, 1200, 5000, 10000, 50000, 85000, 110000, 160000)
+export const TARGET = [50, 300, 800, 3500, 11000, 20000, 80000, 140000, 160000, 230000];
 const INFL = 1.4; // 物价每晚上涨的倍率,防止后期钱花不完
 
 // s3: 升到 3 级后多出来的「招牌技」(只有售卖摊有),效果在 trySell 和 statOf 里按摊位写
@@ -361,6 +361,8 @@ export function newGame(who, level) {
   for (let r = 0; r < (k === 'local' ? 3 : 2); r++) for (let c = 0; c < COLS; c++) S.unlocked.add(c + ',' + r);
   if (k === 'bbq') S.stalls.push({ uid: uid++, id: 'kebab', lvl: 1, c: 1, r: 0 });
   G.N = null; rollShop();
+  // 第 1 晚的货里一定有「烤串 + 奶茶」(烧烤师傅自带烤串,只保证奶茶),新手不会因为开局抽不到能过关的货就一路输
+  for (const id of k === 'bbq' ? ['tea'] : ['kebab', 'tea']) if (!S.shop.some(o => o.id === id)) { const i = S.shop.findIndex(o => o.id !== 'kebab' && o.id !== 'tea'); S.shop[i] = { id, sold: false }; }
 }
 export const maxHearts = () => Math.max(1, (owner() === 'rich' ? 2 : 3) - (stake() >= 6 ? 1 : 0));
 export const perk = k => G.S.perks[k] || 0;
@@ -370,6 +372,24 @@ const infl = () => Math.pow(stake() >= 7 ? 1.45 : INFL, G.S.night - 1);
 export const costOf = d => Math.ceil(d.cost * infl() * Math.pow(0.85, perk('cheap')) * (owner() === 'star' ? 1.15 : 1));
 export const sellVal = s => Math.floor(DEF[s.id].cost * Math.pow(2, s.lvl - 1) / 2);
 export const unlockCost = () => Math.ceil((10 + 5 * G.S.unlockN) * infl());
+// ---------- 后期花钱的出口(2026-11-18 加):原来摊位叠到 3 级以后钱就没处花,第 5 晚起越攒越多 ----------
+// 老字号:3 级摊位白天花钱升到 4 级,售价 ×LV[3]/LV[2]。价钱 = 进货价 × OLD_K,跟着物价涨。擂台和每日挑战里没有
+export const OLD_K = 10;
+export const oldCost = s => Math.ceil(DEF[s.id].cost * OLD_K * infl());
+export function makeOld(s) {
+  const S = G.S; if (S.arena || S.phase !== 'day' || s.lvl !== 3) return 'no';
+  const c = oldCost(s); if (S.money < c) return 'nomoney'; S.money -= c; s.lvl = 4; return 'ok';
+}
+// 秘诀花钱升一级:白天在「已有的经营秘诀」里点。价钱 = PERK_UP_K × 现在的级数,跟着物价涨。稀有的和只有一级的不能升
+export const PERK_UP_K = 80;
+export const perkUpCost = p => Math.ceil(PERK_UP_K * infl() * Math.max(1, perk(p.k)));
+export const canPerkUp = p => !G.S.arena && perk(p.k) > 0 && perk(p.k) < perkMax(p);
+export function buyPerkUp(p) {
+  const S = G.S; if (S.phase !== 'day' || !canPerkUp(p)) return 'no';
+  const c = perkUpCost(p); if (S.money < c) return 'nomoney'; S.money -= c; S.perks[p.k]++; return 'ok';
+}
+// 没达标的保底进账:流水太少也至少拿这么多,免得前期输一晚就什么都买不起、一路输到底
+export const failFloor = () => Math.ceil(35 * infl());
 export const refCost = () => G.S.freeRef > 0 && !G.S.arena ? 0 : Math.ceil(5 * infl() * (owner() === 'local' ? .5 : 1) * (stake() >= 3 ? 2 : 1));   // 老供货商:每晚头一次换货免费
 export const custCount = () => { const ev = eventOf(); return Math.round(((G.S.arena ? (G.S.custBase || ARENA.cust) : 8 + 2 * G.S.night + (owner() === 'star' ? 3 : 0)) + 4 * perk('more')) * (ev && ev.cust || 1)); };
 export const capN = () => { const ev = eventOf(); return Math.max(1, Math.min(ev && ev.capMax || 99, 3 + perk('big') + (ev && ev.cap || 0))); };
@@ -497,7 +517,17 @@ function makeWaves(n) {
   for (let i = 0; i < n; i++) { const part = q.slice(i * per, (i + 1) * per); if (!part.length) continue; const type = i ? rollWave(prev) : 'normal'; prev = type; if (type === 'vip') part.push(true, true); out.push({ type, q: part }); }
   return out.length ? out : [{ type: 'normal', q: [] }];
 }
-function loadWave() { const N = G.N, w = N.waves[N.wave]; N.waveType = w.type; N.queue = w.q.slice().sort(() => Math.random() - 0.5); }
+function loadWave() { const N = G.N, w = N.waves[N.wave]; N.waveType = w.type; N.queue = w.q.slice().sort(() => Math.random() - 0.5); N.shouts = SHOUTS; N.hot = {}; }
+// 吆喝:夜里点一个靠街的售卖摊,SHOUT_T 秒内(游戏时间,加速时跟着快)吸引力 ×SHOUT_A、每单 ×SHOUT_P。每波 SHOUTS 次,不攒到下一波,中场不能用。
+// N.hot 记着每个摊位还剩几秒,由界面层每帧调 coolShouts 扣时间。自动试玩(quickSim)不吆喝,所以定目标时没算它
+export const SHOUTS = 2, SHOUT_T = 3, SHOUT_A = 2, SHOUT_P = 1.3;
+// 返回 'ok' | 'none'(这一波用完了)| 'already'(正在吆喝)| 'closed'(这个摊位今晚不接客)| 'no'(不是夜里)
+export function shout(s) {
+  const N = G.N; if (G.S.phase !== 'night' || !N || !N.hot) return 'no';
+  if (!N.stats.has(s.uid)) return 'closed'; if (N.hot[s.uid] > 0) return 'already'; if (N.shouts <= 0) return 'none';
+  N.shouts--; N.hot[s.uid] = SHOUT_T; return 'ok';
+}
+export function coolShouts(dt) { const N = G.N; if (!N || !N.hot) return; for (const k in N.hot) { N.hot[k] -= dt; if (N.hot[k] <= 0) delete N.hot[k]; } }
 // waves: 分几波(新手引导里传 1,不停顿)
 export function startNight(waves = WAVES) {
   G.S.phase = 'night';
@@ -534,13 +564,15 @@ function trySell(c, s, onSale) {
   if (c.kid && d.cat !== 'sweet' && d.cat !== 'game') return;
   if (G.S.event && G.S.event.k === 'mono' && c.cats.indexOf(d.cat) >= 0) return;   // 大考「尝鲜团」
   if (!free && c.buys >= cap) return; if (d.cat === 'food' && c.full) return; if (s.id === 'ring' && c.happy) return; if (s.id === 'balloon' && c.balloon) return;
-  let a = st.a; if (s.id === 'phone' && c.happy) a = top ? .95 : a * 2; if (c.balloon) a *= c.balloon; if (c.kid) a *= 2; a = Math.min(.95, a);
+  const hot = !!(N.hot && N.hot[s.uid] > 0);   // 正在吆喝
+  let a = st.a; if (s.id === 'phone' && c.happy) a = top ? .95 : a * 2; if (c.balloon) a *= c.balloon; if (c.kid) a *= 2; if (hot) a *= SHOUT_A; a = Math.min(.95, a);
   if (Math.random() > a) return;
   const f = { thirsty: 0, last: false };
   let amt = st.price + (s.id === 'ice' ? (top ? 4 : 3) * c.buys * st.pm : 0);
   if (d.cat === 'drink' && c.thirsty) { f.thirsty = c.thirsty + (top && s.id === 'lemon' ? 1 : 0); amt *= f.thirsty; c.thirsty = 0; }
   else if (top && s.id === 'tea') amt *= 1.2;
   if (c.happy) amt *= c.happy;
+  if (hot) { amt *= SHOUT_P; f.hot = true; }
   if (!free && c.buys + 1 >= cap && perk('last')) { amt *= 1 + perk('last'); f.last = true; }
   amt += st.flat; if (!free && c.buys === 0) amt += 5 * perk('first');
   if (c.cats.indexOf(d.cat) < 0) { amt *= 1 + 0.2 * perk('set'); c.cats.push(d.cat); }
@@ -562,11 +594,17 @@ export function visit(c, r, onSale) { for (const col of Math.random() < .5 ? [1,
 // 利息:收摊时,手上没花掉的钱每 ¥10 生 ¥1,有上限(上限跟着物价涨);秘诀「存钱罐」每级把上限再加一倍。擂台里没有
 export const interestCap = () => Math.ceil(20 * infl()) * (1 + perk('save'));
 export const interestOf = () => G.S.arena ? 0 : Math.min(Math.floor(G.S.money / 10), interestCap());
+// 超额:热度到目标的 1.5 / 2 / 3 倍各算一颗星,每颗星收摊时多给一笔钱(目标的 5%)。擂台和每日挑战里没有。
+// 让已经稳过的晚上也值得把摆法再抠一抠
+export const OVER = [1.5, 2, 3];
+export const overStars = (inc, T = target()) => G.S.arena || !T ? 0 : OVER.filter(x => inc >= x * T).length;
+export const overBonus = (stars, T = target()) => stars * Math.max(5, Math.round(T * 0.05 / 5) * 5);
 export const wantsBack = c => !c.ret && c.buys < capOf(c) && Math.random() < 0.25 * perk('back');
 export function finishNight() {
   const S = G.S, T = target(), inc = G.N.income; S.phase = 'settle';
   const N = G.N, src = Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid });   // 人气的来源明细
-  return { ok: S.arena ? inc > T : inc >= T, inc, T, flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
+  const ok = S.arena ? inc > T : inc >= T, stars = ok ? overStars(inc, T) : 0;
+  return { ok, inc, T, stars, over: overBonus(stars, T), flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
 }
 // 进入下一晚的白天。普通模式里第 10 晚没过则重打第 10 晚;无尽模式一直往后
 export function nextDay() {
@@ -597,7 +635,7 @@ export function skipNight() {
 }
 // 返回 'win' | 'perk'(等玩家选完秘诀再进下一晚)| 'over' | 'next'
 export function settle(ok, gain) {
-  const S = G.S; S.money += gain;
+  const S = G.S; if (!ok && !S.arena) gain = Math.max(gain, failFloor()); S.money += gain;
   if (!S.arena && (perk('regular') || perk('fame'))) {   // 成长型秘诀:营业过一晚(不论过没过),各自长一点
     const pg = S.pg = S.pg || {}, kinds = G.N && G.N.kinds != null ? G.N.kinds : new Set(streetPatterns().map(p => p.k)).size;
     if (perk('regular')) pg.regular = (pg.regular || 0) + 1;

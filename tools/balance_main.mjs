@@ -17,6 +17,13 @@ function pickPerk() {
   const own = L.ownedPerks();
   if (Math.random() < .5) L.takePerk(p, own[Math.random() * own.length | 0].k); else L.skipPerk();
 }
+// 后期花钱:随手挑一样买得起的老字号或秘诀升级
+function spendUp() {
+  const S = G.S, opts = [];
+  for (const s of S.stalls) if (s.lvl === 3 && L.oldCost(s) <= S.money) opts.push(() => L.makeOld(s));
+  for (const p of L.ownedPerks()) if (L.canPerkUp(p) && L.perkUpCost(p) <= S.money) opts.push(() => L.buyPerkUp(p));
+  return opts.length ? opts[Math.random() * opts.length | 0]() === 'ok' : false;
+}
 function day() {
   const S = G.S; let ref = 0, uid = 1000 + S.stalls.length * 7 + S.night * 100;
   for (let step = 0; step < 80; step++) {
@@ -32,6 +39,7 @@ function day() {
       if (!spot) continue; S.money -= cost; o.sold = true; S.stalls.push({ uid: uid++, id: o.id, lvl: 1, c: spot[0], r: spot[1] }); did = true;
     }
     for (const a of S.stalls) if (a.lvl === 2) { const b = S.stalls.find(x => x !== a && x.id === a.id && x.lvl === 2); if (b) { a.lvl = 3; S.stalls = S.stalls.filter(x => x !== b); did = true; break; } }
+    if (!did) did = spendUp();
     if (!did) { if (S.money >= L.refCost() * 5 && ref < 12) { L.refresh(false); ref++; } else break; }
   }
 }
@@ -40,7 +48,7 @@ for (let g = 0; g < N; g++) {
   L.newGame(OWNER, STAKE); let guard = 0;
   while (guard++ < 40) {
     const S = G.S, n = S.night; day(); const inc = L.quickSim(1), T = L.target(); ratio[n - 1].push(inc / T); incs[n - 1].push(inc); flows[n - 1].push(L.quickSim.flow); mults[n - 1].push(L.quickSim.mult);
-    const res = L.settle(CAL || inc >= T, L.quickSim.flow);   // 进口袋的是流水,不是热度
+    const res = L.settle(CAL || inc >= T, L.quickSim.flow + (inc >= T ? L.overBonus(L.overStars(inc, T), T) : 0));   // 进口袋的是流水(不是热度),达标后再加超额奖励
     if (res === 'win') { wins++; reach[MAXN]++; break; }
     if (res === 'over') { reach[n - 1]++; break; }
     if (res === 'perk') pickPerk();

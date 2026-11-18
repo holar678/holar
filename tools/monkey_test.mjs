@@ -63,7 +63,7 @@ function check(step) {
   if (!(S.night >= 1) || !['day', 'night', 'break', 'settle'].includes(S.phase)) fail('阶段不对:' + S.night + ' ' + S.phase);
   const pos = new Set();
   for (const s of S.stalls) {
-    if (!L.DEF[s.id] || !(s.lvl >= 1 && s.lvl <= 3) || !(s.c >= 0 && s.c < L.COLS) || !(s.r >= 0 && s.r < L.ROWS)) fail('摊位数据不对:' + JSON.stringify(s));
+    if (!L.DEF[s.id] || !(s.lvl >= 1 && s.lvl <= 4) || !(s.c >= 0 && s.c < L.COLS) || !(s.r >= 0 && s.r < L.ROWS)) fail('摊位数据不对:' + JSON.stringify(s));
     if (pos.has(s.c + ',' + s.r)) fail('两个摊位叠在同一格:' + s.c + ',' + s.r); pos.add(s.c + ',' + s.r);
     if (!ui.peek && !S.unlocked.has(s.c + ',' + s.r)) fail('摊位摆在了没解锁的地上:' + s.c + ',' + s.r);
   }

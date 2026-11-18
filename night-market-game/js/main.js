@@ -40,14 +40,14 @@ function txt(s, x, y, px, col = TXT, al = 'left', b = false) {
 }
 function wrap(s, maxW, px) {
   ctx.font = font(px); const out = []; let line = '', lw = 0;
-  for (const u of s.match(/\{\w+\}|[\s\S]/gu) || []) {   // 图标整体算一个字,不会被拆到两行
+  for (const u of s.match(/\{\w+\}|[+\-×¥]?[0-9A-Za-z.%]+|[\s\S]/gu) || []) {   // 图标整体算一个字;数字和字母连成一段(¥237、+0.4、×2.5、Lv2),都不会被拆到两行
     const uw = u.length > 2 && u[0] === '{' ? tokW(px) : ctx.measureText(u).width;
     if (lw + uw > maxW && line) { out.push(line); line = u; lw = uw; } else { line += u; lw += uw; }
   }
   if (line) out.push(line); return out;
 }
 const hit = (x, y, w, h, fn) => ui.hits.push({ x, y, w, h, fn });
-const toast = (t, life = 1.5) => { ui.toast = { t, life }; };
+const toast = (t, life = 1.5) => { ui.toast = { t, life, m: !!ui.modal }; };   // m:出现时有没有弹窗。没弹窗时出的提示,弹窗打开期间先藏起来,不压在弹窗上
 const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
 // 一块牌子:硬投影 + 纯色 + 描边。按钮、价签、弹窗都用它。
 // 美术交了九宫格底图(ui_*.png)就改用图片,图里自带描边和硬投影,所以图片画到 h + lift 的高度,占住原来投影的位置
@@ -112,6 +112,7 @@ const sfx = {
   coin: () => { if (ui.t - lastCoin < .05) return; lastCoin = ui.t; tone(1100 + Math.random() * 500, .07, 'sine', .05, 300); },
   open: () => [392, 523, 659].forEach((f, i) => tone(f, .14, 'triangle', .07, 0, i * .08)),
   ok: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, .18, 'triangle', .07, 0, i * .08)),
+  shout: () => [330, 440, 554].forEach((f, i) => tone(f, .1, 'square', .045, 60, i * .06)),
   fail: () => [392, 330, 262].forEach((f, i) => tone(f, .22, 'sawtooth', .04, 0, i * .14)),
 };
 
@@ -171,7 +172,15 @@ function breakTap(c, r) {
   }
   if (at) { ui.sel = { kind: 'stall', s: at }; sfx.tap(); }
 }
-function tapCard(i) { const o = G.S.shop[i]; if (o.sold) return; ui.sel = ui.sel && ui.sel.kind === 'shop' && ui.sel.i === i ? null : { kind: 'shop', i }; sfx.tap(); }
+// 白天把 3 级摊位花钱升成老字号(4 级)
+function oldAt(s) {
+  const r = L.makeOld(s);
+  if (r === 'ok') { sfx.merge(); burst(s.c, s.r, '255,215,90'); s.bounce = 1; toast('升成老字号!售价再高五成'); }
+  else if (r === 'nomoney') { sfx.bad(); toast(`钱不够,还差 ¥${L.oldCost(s) - G.S.money}`); }
+}
+function tapCard(i) { const o = G.S.shop[i]; if (o.sold) return;
+  const need = L.costOf(DEF[o.id]) - G.S.money; if (need > 0 && !(ui.sel && ui.sel.i === i)) { sfx.bad(); return toast(`钱不够,还差 ¥${need}`); }
+  ui.sel = ui.sel && ui.sel.kind === 'shop' && ui.sel.i === i ? null : { kind: 'shop', i }; sfx.tap(); }
 function watchAd(cb) {
   const done = () => { cb(); persist(); };
   if (P.hasAd) return P.showRewardedAd(done, () => toast('广告暂时加载不出来'));
@@ -189,7 +198,7 @@ function loadRun() {
 }
 
 // ---------- 好友擂台 ----------
-function resetUi() { Object.assign(ui, { sel: null, modal: null, cust: [], coins: [], pops: [], feed: [], inc: 0, peek: null, money: G.S.money, combos: null, pats: null }); }
+function resetUi() { Object.assign(ui, { sel: null, modal: null, cust: [], coins: [], pops: [], feed: [], inc: 0, peek: null, money: G.S.money, combos: null, pats: null, show: null, banner: null, lvl: 0 }); }
 function enterArena(rival, skipIntro, daily) {
   const th = daily ? L.themeOf(today()) : null;
   L.enterArena(rival, th ? { day: today(), theme: th } : null); resetUi(); if (skipIntro) return; sfx.open();
@@ -281,7 +290,85 @@ function goNight() {
   if (!S.stalls.some(s => L.isFront(s.c) && !DEF[s.id].sup) && !(ui.goWarn > ui.t)) { ui.goWarn = ui.t + 3; sfx.bad(); return toast('没有靠街的售卖摊,开张赚不到钱。再点一次确认'); }
   for (const s of S.stalls) s.earn = 0;
   L.startNight(ui.tut ? 1 : L.WAVES); if (S.daily) { dailyState().tries++; saveProf(); }   // 每日挑战:开张才算用掉一次
-  ui.sel = null; ui.inc = 0; ui.spawn = .3; ui.gap = Math.max(.15, 5 / G.N.queue.length); ui.feed = []; ui.endT = 0; sfx.open();
+  ui.sel = null; ui.inc = 0; ui.spawn = .3; ui.gap = Math.max(.15, 5 / G.N.queue.length); ui.feed = []; ui.endT = 0; ui.lvl = 0; ui.banner = null; sfx.open();
+  openShow(); if (!ui.tut && P.store.get('shoutTip') !== '1') ui.shoutTip = true;
+}
+
+// ---------- 开张演出:摊位按街的顺序一个个亮起,招牌搭配和街型各自报出加了多少人气,人气数字滚上去,最后亮出开张人气 ----------
+// 演出期间客人不进场;点屏幕任意处跳到最后
+const r2 = v => Math.round(v * 100) / 100;
+const stallsOf = uids => G.S.stalls.filter(s => uids.indexOf(s.uid) >= 0);
+function openShow() {
+  const N = G.N, steps = [], front = [...N.stats.keys()];
+  if (N.parts.perk > 0) steps.push({ s: `秘诀 +${N.parts.perk}`, v: N.parts.perk, at: [], row: -1 });
+  const cs = L.activeCombos().filter(x => N.stats.has(x.a.uid) && N.stats.has(x.b.uid)), cv = cs.length ? r2(N.parts.combo / cs.length) : 0;
+  for (const x of cs) steps.push({ s: `${x.c.n} +${cv}`, v: cv, at: [x.a, x.b], col: '255,201,74' });
+  for (const p of L.streetPatterns()) steps.push({ s: `${p.n} +${p.heat}`, v: p.heat, at: stallsOf(p.uids.length ? p.uids : front), col: '255,179,217' });
+  for (const st of steps) if (st.row == null) st.row = st.at.length ? Math.min(...st.at.map(s => s.r)) : -1;
+  steps.sort((a, b) => a.row - b.row);   // 从街口往街尾走一遍
+  startShow(steps, 1, 1, N.xmult, '开张');
+}
+// 中场调整后新凑成的搭配、街型,以及稀有秘诀倍数的变化:简短报一次
+function midShow(h0, x0) {
+  const N = G.N, dh = r2(N.heat - h0); if (dh <= 0 && N.xmult === x0) return;
+  startShow(dh > 0 ? [{ s: `新摆法 +${dh}`, v: dh, at: [] }] : [], h0, x0, N.xmult, '继续营业');
+}
+// h0/x0:演出开始时的人气和稀有倍数;x1:演出结束时的稀有倍数
+function startShow(steps, h0, x0, x1, title) {
+  const d = steps.length ? Math.max(.2, Math.min(.42, 1.8 / steps.length)) : 0;
+  ui.show = { t: 0, steps, d, i: -1, xi: x1 !== x0, x0, x1, title, cur: h0 * x0, sum: h0, x: x0, fin: 0, bump: 0 };
+}
+function skipShow() { const sh = ui.show; if (!sh || sh.fin) return; sh.t = Math.max(sh.t, sh.endT || 0); sh.quiet = true; }   // 跳过时剩下的几项一起亮,不再逐个响
+function updateShow(dt) {
+  const sh = ui.show; if (!sh) return; sh.t += dt;
+  const t0 = .25, xT = t0 + sh.steps.length * sh.d, endT = sh.endT = xT + (sh.xi ? .45 : 0);
+  while (sh.i + 1 < sh.steps.length && sh.t >= t0 + (sh.i + 1) * sh.d) {   // 下一项亮起
+    const st = sh.steps[++sh.i]; sh.sum = r2(sh.sum + st.v); sh.bump = 1;
+    if (!sh.quiet) tone(440 * Math.pow(1.122, Math.min(sh.i, 12)), .1, 'triangle', .07);
+    if (st.at.length) {
+      for (const s of st.at) burst(s.c, s.r, st.col);
+      const ps = st.at.map(s => plot(s.c, s.r)), x = ps.reduce((a, p) => a + p.x + p.w / 2, 0) / ps.length, y = ps.reduce((a, p) => a + p.y + p.h / 2, 0) / ps.length;   // 写在这几个摊位的正中间
+      ui.pops.push({ x: Math.max(60, Math.min(W - 60, x)), y: y + 10, t: 0, s: st.s, c: st.col === '255,201,74' ? GOLD : '#ffb3d9', life: 1.1 });
+    } else ui.pops.push({ x: W / 2, y: LAY.gridY + 8, t: 0, s: st.s, c: '#ffb3d9', big: true, life: 1.1 });
+  }
+  if (sh.xi && sh.x !== sh.x1 && sh.t >= xT) { sh.x = sh.x1; sh.bump = 1; tone(660, .18, 'square', .05, 220); ui.pops.push({ x: W / 2, y: LAY.gridY + 24, t: 0, s: sh.x0 > 1 ? `稀有秘诀 ×${sh.x0} → ×${sh.x1}` : `稀有秘诀 ×${sh.x1}`, c: '#c9a0ff', big: true, life: 1.1 }); }
+  sh.cur += (sh.sum * sh.x - sh.cur) * Math.min(1, dt * 10); sh.bump = Math.max(0, sh.bump - dt * 4);
+  if (sh.t >= endT && !sh.fin) { sh.fin = sh.t; sh.cur = sh.sum * sh.x; sfx.merge(); }
+  if (sh.fin && sh.t - sh.fin > .75) { ui.show = null; if (ui.shoutTip) { ui.shoutTip = false; P.store.set('shoutTip', '1'); toast(SHOUT_TIP, 3.5); } }   // 第一次开张演出后教一下吆喝
+}
+// 屏幕中间的一块纸牌:大字 + 一行小字,弹出来再淡掉
+function drawBanner(big, small, t, life, col = RED) {
+  const k = Math.min(1, t / .12), a = Math.min(1, (life - t) / .2), sc = .7 + .3 * (1 - Math.pow(1 - k, 3)) + .08 * Math.max(0, 1 - t / .25);
+  ctx.save(); ctx.globalAlpha = Math.max(0, a); const cx = W / 2, cy = LAY.gridY + LAY.gridH * .38;
+  ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+  ctx.font = font(26, true); const w = Math.max(150, ctx.measureText(big).width + 48), h = small ? 70 : 52;
+  plate(cx - w / 2, cy - h / 2, w, h, PAPER, 10, 4);
+  if (small) { txt(small, cx, cy - 16, 12, BROWN, 'center', true); txt(big, cx, cy + 10, 26, col, 'center', true); } else txt(big, cx, cy + 1, 26, col, 'center', true);
+  ctx.restore();
+}
+// ---------- 吆喝:夜里点靠街的售卖摊,几秒内生意更好。每波只有几次,挑口渴的、土豪、一大群人走过来的时候用 ----------
+const SHOUT_TIP = `点靠街的摊位吆喝:${L.SHOUT_T} 秒内吸引力翻倍、多收三成`;
+function shoutAt(s) {
+  const r = L.shout(s), p = plot(s.c, s.r);
+  if (r === 'ok') { sfx.shout(); s.bounce = 1; burst(s.c, s.r, '255,201,74'); ui.pops.push({ x: p.x + p.w / 2, y: p.y + 8, t: 0, s: '吆喝!', c: GOLD, big: true }); }
+  else if (r === 'none') { sfx.bad(); toast('这一波的吆喝用完了,下一波再来', 1.6); }
+  else if (r === 'closed') { sfx.bad(); toast('这个摊位今晚不接客', 1.6); }
+}
+// 正在吆喝的摊位:描一圈闪动的金边,靠街一侧挂一块「吆喝!」小牌,底下一条红线表示还剩多久
+function drawShouts() {
+  const N = G.N; if (!N || !N.hot || G.S.phase !== 'night') return;
+  for (const k in N.hot) {
+    const s = G.S.stalls.find(o => o.uid === +k); if (!s) continue;
+    const p = plot(s.c, s.r), left = Math.max(0, N.hot[k] / L.SHOUT_T), bx = s.c === 1 ? p.x + p.w - 46 : p.x + 2, by = p.y - 2;
+    A.rr(ctx, p.x + 2, p.y + 2, p.w - 4, p.h - 4, 9); ctx.strokeStyle = `rgba(255,215,90,${.55 + .4 * Math.sin(ui.t * 14)})`; ctx.lineWidth = 2.5; ctx.stroke();
+    plate(bx, by, 44, 19, PAPER, 6, 2); txt('吆喝!', bx + 22, by + 8.5, 11, RED, 'center', true); ctx.fillStyle = RED; ctx.fillRect(bx + 4, by + 15, 36 * left, 2);
+  }
+}
+function drawShow() {
+  drawShouts();
+  const sh = ui.show;
+  if (sh) { hit(0, 0, W, H, skipShow); if (sh.fin) drawBanner(`人气 ×${(sh.sum * sh.x).toFixed(1)}`, sh.title, sh.t - sh.fin, .75); }
+  const b = ui.banner; if (b) { b.t += DT; if (b.t >= 1.1) ui.banner = null; else drawBanner(b.s, b.sub, b.t, 1.1, b.col); }
 }
 
 // ---------- 夜晚 ----------
@@ -289,17 +376,17 @@ function feed(s) { ui.feed.unshift({ s, life: 3 }); if (ui.feed.length > 3) ui.f
 function onSale(c, s, amt, f) {
   const p = plot(s.c, s.r), d = DEF[s.id]; s.bounce = 1; s.earn = (s.earn || 0) + amt;
   const special = f.thirsty || c.rich || f.last;
-  ui.pops.push({ x: p.x + p.w / 2, y: p.y + 6, t: 0, s: '+¥' + amt, c: f.thirsty ? '#8fdcff' : c.rich ? '#fff0a0' : GOLD, big: special });
+  ui.pops.push({ x: p.x + p.w / 2, y: p.y + 6, t: 0, s: '+¥' + amt, c: f.thirsty ? '#8fdcff' : c.rich ? '#fff0a0' : GOLD, big: special || f.hot });
   if (f.heat > 0) ui.pops.push({ x: p.x + p.w / 2, y: p.y - 10, t: 0, s: '人气 +' + Math.round(f.heat * 10) / 10, c: '#ffb3d9', big: true });
   const n = Math.min(4, 1 + Math.floor(amt / 15));
   for (let i = 0; i < n; i++) ui.coins.push({ x0: p.x + p.w / 2, y0: p.y + p.h * .4, t: -i * .05, d: .45 + Math.random() * .2, cx: (Math.random() - .5) * 90 });
   if (f.thirsty) feed(`口渴连击 ×${f.thirsty} · ${d.n} +¥${amt}`); else if (c.rich) feed(`土豪消费 ×3 · ${d.n} +¥${amt}`);
-  else if (f.last) feed(`临走再买 · ${d.n} +¥${amt}`); else if (s.id === 'ring') feed('有人玩了套圈,心情大好');
+  else if (f.last) feed(`临走再买 · ${d.n} +¥${amt}`); else if (f.hot) feed(`吆喝 · ${d.n} +¥${amt}`); else if (s.id === 'ring') feed('有人玩了套圈,心情大好');
   sfx.coin();
 }
 function updateNight(dt) {
-  const N = G.N, l = LAY; if (G.S.phase !== 'night') return;
-  const sdt = dt * ui.speed; ui.spawn -= sdt;
+  const N = G.N, l = LAY; if (G.S.phase !== 'night' || ui.show) return;
+  const sdt = dt * ui.speed; ui.spawn -= sdt; L.coolShouts(sdt);
   if (N.queue.length && ui.spawn <= 0) {
     ui.spawn = ui.gap; const c = L.newCust(N.queue.pop());
     Object.assign(c, { x: l.streetX + l.sw / 2 + (Math.random() - .5) * l.sw * .5, y: l.gridY - 30, dir: 1, next: 0, look: A.pickLook(c.rich, c.kid), seed: Math.random() * 9, shirt: pick(A.SHIRTS), hair: pick(A.HAIRS), skin: pick(A.SKINS), shirt2: pick(A.SHIRTS), hair2: pick(A.HAIRS), look2: A.pickLook(false) });
@@ -342,16 +429,16 @@ function heatModal() {
 function showSettle(r) {
   if (G.S.arena) return arenaSettle(r);
   if (r.ok) {
-    sfx.ok(); const base = r.flow + r.tip + r.interest + r.goal, extra = Math.round(base * .5);
+    sfx.ok(); const base = r.flow + r.tip + r.interest + r.goal + r.over, extra = Math.round(base * .5);
     ui.modal = {
-      title: '今晚达标!', tone: 'ok', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},达标`].concat(r.tip ? [`小费 +¥${r.tip}`] : [], r.interest ? [`利息 +¥${r.interest}(没花的钱每 ¥10 生 ¥1,上限 ¥${L.interestCap()})`] : [], r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
+      title: '今晚达标!', tone: 'ok', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},达标` + (r.stars ? `,超额 ${'★'.repeat(r.stars)} +¥${r.over}` : '')].concat(r.tip ? [`小费 +¥${r.tip}`] : [], r.interest ? [`利息 +¥${r.interest}(没花的钱每 ¥10 生 ¥1,上限 ¥${L.interestCap()})`] : [], r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
       buttons: [{ label: `收摊  +¥${base}`, kind: 'pri', fn: () => afterSettle(true, base) }, { label: `{play}看广告多得 50%  +¥${base + extra}`, kind: 'ad', fn: () => watchAd(() => afterSettle(true, base + extra)) }]
     };
   } else {
     sfx.fail();
     P.store.set('pendingFail', String(r.flow));   // 记一笔:如果在这个界面直接退出,下次进来按未达标结算
     ui.modal = {
-      title: '没达标', tone: 'bad', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},还差 ${r.T - r.inc}`].concat(r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners()),
+      title: '没达标', tone: 'bad', small: true, lines: [scoreLine(r), srcLine(r.src, r.xmult), `目标 ${r.T},还差 ${r.T - r.inc}`].concat(r.goal ? [`小目标达成 +¥${r.goal}`] : [], topEarners(), r.flow + r.goal < L.failFloor() ? [`街坊帮衬:今晚进账按保底 ¥${L.failFloor()} 算`] : [], [failRule()]),
       buttons: (r.encore ? [] : [{ label: '{play}看广告加场:再来 6 位顾客', kind: 'ad', fn: () => watchAd(() => { ui.modal = null; L.encore(); ui.gap = .4; ui.spawn = .2; ui.endT = 0; }) }])
         .concat([{ label: '认了(失去一颗心)', kind: 'sec', fn: () => afterSettle(false, r.flow + r.goal) }])
     };
@@ -395,6 +482,12 @@ function afterSettle(ok, gain) {
   else go();
 }
 // list: 已经抽好的几个选项(从「换掉哪一个」返回时用,不能重抽);不传就新抽一批
+// 没达标会怎样:扣一颗心;平常夜进入下一晚,第 10 晚(终局)重打这一晚;今晚挣的钱都照收
+function failRule() {
+  const S = G.S, h = S.hearts - 1;
+  if (h <= 0) return '这是最后一颗心,认了游戏就结束';
+  return `认了失去一颗心(还剩 ${h} 颗),` + (S.night === L.MAXN && !S.endless ? '重打第 10 晚' : '进入下一晚') + ',今晚挣的钱照收';
+}
 function perkModal(list) {
   const ch = Array.isArray(list) ? list : L.perkChoices(), n = L.perkSlots(), full = n >= L.perkCap();
   ui.modal = {
@@ -407,7 +500,7 @@ function perkModal(list) {
 // 栏位满了:选一个旧的换掉
 function swapModal(p, ch) {
   ui.modal = {
-    title: `换掉哪一个?换成「${p.n}」`,
+    title: `换掉哪一个?换成「${p.n}」`, swap: true,
     perks: L.ownedPerks().map(o => ({ p: o, fn: () => { L.takePerk(p, o.k); ui.modal = null; sfx.merge(); } })),
     buttons: [{ label: '不换了,返回', kind: 'sec', fn: () => perkModal(ch) }]
   };
@@ -436,7 +529,7 @@ function restart() {
 function helpModal() {
   const next = L.UNLOCKS.find(u => prof.cleared < u.at);   // 下一个要解锁的摊位
   ui.modal = {
-    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息:每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
+    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '热度到目标的 1.5、2、3 倍各得一颗星,每颗星收摊多给一笔钱', `夜里点靠街的摊位「吆喝」:${L.SHOUT_T} 秒内吸引力翻倍、多收三成,每波 ${L.SHOUTS} 次`, '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '同一条秘诀再选一次会升级,最高 3 级(稀有的只有 1 级);白天点顶上的秘诀栏也能花钱升级', '3 级摊位白天点一下,可以花钱升成「老字号」,售价再高五成', '没达标也有保底进账,输一晚不至于什么都买不起', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息:每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
       .concat(!G.S.arena && L.stake() > 1 ? [`本局${L.STAKES[L.stake() - 1].n}:${L.STAKES.slice(1, L.stake()).map(x => x.d).join(';')}`] : [], !G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : [], [`版本 ${P.version}${P.env ? '(' + P.env + ')' : ''}`]),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }, { label: `音效:${prof.sound ? '开' : '关'}`, kind: 'sec', fn: () => { prof.sound = !prof.sound; saveProf(); helpModal(); } }]
       .concat(G.S.arena ? [] : [{ label: '重新开始主线', kind: 'sec', fn: restart }])
@@ -456,7 +549,7 @@ const needOf = id => { const u = L.UNLOCKS.find(x => x.id === id); return u ? Ma
 const comboFound = c => prof.combos.indexOf(c.k) >= 0;
 function codexModal() {
   ui.modal = {
-    title: '摊位图鉴', small: true, lines: ['点一个摊位看它的作用和搭配。棚顶和色带的颜色代表品类。'], grid: Object.keys(DEF).sort((a, b) => !!DEF[a].sup - !!DEF[b].sup).map(id => ({ id, need: needOf(id) })),
+    title: '摊位图鉴', small: true, lines: ['点一个摊位看它的作用和搭配。棚顶和色带的颜色代表品类。', '主线每过一晚解锁进度 +1,成就和每日挑战奖牌也会加进度。'], grid: Object.keys(DEF).sort((a, b) => !!DEF[a].sup - !!DEF[b].sup).map(id => ({ id, need: needOf(id) })),
     buttons: [{ label: `招牌搭配 ${L.COMBOS.filter(comboFound).length}/${L.COMBOS.length}`, kind: 'pri', fn: comboModal }, { label: `成就 ${prof.ach.length}/${L.ACHS.length}`, kind: 'sec', fn: achModal }, { label: '关闭', kind: 'sec', fn: () => { ui.modal = null; } }]
   };
 }
@@ -481,15 +574,35 @@ function stallModal(id) {
   const d = DEF[id], need = needOf(id);
   ui.modal = {
     title: d.n, small: true,
-    lines: (need ? [`还没解锁:再撑过 ${need} 晚就会出现在进货里(主线过关、每日挑战拿奖牌都算)`] : [])
+    lines: (need ? [`还没解锁:解锁进度还差 ${need}(主线每过一晚 +1,成就、每日挑战奖牌也会加),到了就会出现在进货里`] : [])
       .concat([d.sup ? '支援摊:自己不卖东西,给同侧周围一圈的摊位加成。升级后加成翻倍' : `${CAT_NAME[d.cat]} · 售价 ¥${d.p} · 吸引力 ${Math.round(d.a * 100)}% · 进货价 ¥${d.cost}`, d.d].concat(d.s3 ? ['升到 3 级的招牌技:' + d.s3] : [], ['怎么摆:' + HINT[id]]), L.COMBOS.filter(c => comboFound(c) && c.a.concat(c.b).indexOf(id) >= 0).map(c => `搭配「${c.n}」${c.d}`)),
     buttons: [{ label: '返回图鉴', kind: 'pri', fn: codexModal }]
   };
 }
 function perkListModal() {
   const own = L.ownedPerks(); if (!own.length) return helpModal();
-  ui.modal = { title: `已有的经营秘诀 ${own.length}/${L.perkCap()}`, small: true, lines: [`最多带 ${L.perkCap()} 种;同一种最多叠到 ${L.PERK_MAX} 级,稀有的和只有一级的不能叠`].concat(own.map(p => `{perk_${p.k}}${p.n}${p.r ? '(稀有)' : p.one ? '' : ' ' + L.perk(p.k) + ' 级'}:${p.d}`
-      + (p.k === 'regular' ? `(已涨 ${Math.round(L.grown('regular') * L.REGULAR * 100)}%)` : p.k === 'fame' ? `(已攒 +${L.grown('fame')})` : ''))),   /* 成长型秘诀:写上已经攒了多少 */ buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }] };
+  const day = G.S.phase === 'day' && !G.S.arena;
+  ui.modal = {
+    title: `已有的经营秘诀 ${own.length}/${L.perkCap()}`, small: true,
+    lines: [(day ? '点一条花钱升级' : '白天点一条可以花钱升级') + `,每种最多 ${L.PERK_MAX} 级`],
+    perks: own.map(p => ({ p, name: `${p.n}${p.r ? ' · 稀有' : ''}(${L.perk(p.k)} 级${L.canPerkUp(p) ? ' · 可升级' : ''})`,
+      note: p.k === 'regular' ? `每晚售价永久 +5%,已涨 ${Math.round(L.grown('regular') * L.REGULAR * 100)}%` : p.k === 'fame' ? `每晚每种街型人气 +0.05,已攒 +${L.grown('fame')}` : '',   // 成长型秘诀:写上已经攒了多少
+      fn: () => perkUpModal(p) })),
+    buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }]
+  };
+}
+// 一条秘诀的详情:能升级时给一个花钱升级的按钮(只在白天)
+function perkUpModal(p) {
+  const lv = L.perk(p.k), up = L.canPerkUp(p), cost = L.perkUpCost(p), day = G.S.phase === 'day';
+  ui.modal = {
+    title: p.n, small: true,
+    lines: [p.d, up ? `现在 ${lv} 级,升到 ${lv + 1} 级要 ¥${cost}(手里 ¥${G.S.money})` : p.r || p.one ? '稀有的和只有一级的秘诀不能升级' : '已经满级了'].concat(up && !day ? ['白天才能升级'] : []),
+    buttons: (up && day ? [{ label: `升到 ${lv + 1} 级  ¥${cost}`, kind: 'pri', fn: () => {
+      const r = L.buyPerkUp(p);
+      if (r === 'ok') { sfx.merge(); perkListModal(); toast(`「${p.n}」升到 ${lv + 1} 级`); }
+      else if (r === 'nomoney') { sfx.bad(); toast(`钱不够,还差 ¥${cost - G.S.money}`); }
+    } }] : []).concat([{ label: '返回', kind: 'sec', fn: perkListModal }])
+  };
 }
 
 // ---------- 绘制:场景 ----------
@@ -532,6 +645,7 @@ function drawScene() {
       if (day && L.canUnlock(c, r)) txt('+¥' + L.unlockCost(), p.x + p.w / 2, p.y + p.h / 2, 11, S.money >= L.unlockCost() ? '#b9f5cf' : DIM, 'center');
     }
     if (day || S.phase === 'break') hit(p.x, p.y, p.w, p.h, () => tapPlot(c, r));
+    else if (S.phase === 'night' && at && L.isFront(c) && !DEF[at.id].sup) hit(p.x, p.y, p.w, p.h, () => shoutAt(at));   // 夜里点靠街的售卖摊:吆喝
   }
   // 街口牌楼:有 gate.png 就画图,立在街口正中;没有就画一道写着「夜市」的红横梁
   const gate = A.image('gate'), gcx = l.streetX + l.sw / 2;
@@ -565,7 +679,7 @@ function drawScene() {
     if (iw) { ctx.fillStyle = bad ? '#7a2a22' : PAPER; ctx.fillRect(x + nw, y, iw, 13); }
     ctx.restore();
     txt(def.n, x + nw / 2, y + 7, 9.5, '#fff', 'center', true); if (iw) txt(info, x + nw + iw / 2, y + 7, 8.5, bad ? '#ffd0c8' : INK, 'center', true);
-    if (s.lvl > 1) { A.rr(ctx, p.x + p.w - 25, p.y, 24, 14, 5); ctx.fillStyle = INK; ctx.fill(); A.rr(ctx, p.x + p.w - 24, p.y + 1, 22, 12, 4); ctx.fillStyle = s.lvl > 2 ? GOLD : '#8fc4ff'; ctx.fill(); txt('Lv' + s.lvl, p.x + p.w - 13, p.y + 7.5, 9, INK, 'center', true); }
+    if (s.lvl > 1) { A.rr(ctx, p.x + p.w - 25, p.y, 24, 14, 5); ctx.fillStyle = INK; ctx.fill(); A.rr(ctx, p.x + p.w - 24, p.y + 1, 22, 12, 4); ctx.fillStyle = s.lvl > 3 ? '#ff9a6a' : s.lvl > 2 ? GOLD : '#8fc4ff'; ctx.fill(); txt('Lv' + s.lvl, p.x + p.w - 13, p.y + 7.5, 9, INK, 'center', true); }
   }
   // 招牌搭配:两个摊位之间挂一枚金牌
   // 连摊:沿街边画一道品类色的竖条,标出连在一起的那几个摊位
@@ -615,21 +729,23 @@ function drawHUD() {
   const ms = '¥ ' + Math.round(ui.money); ctx.font = font(15, true); const mw = ctx.measureText(ms).width + 34;
   plate(W - 10 - mw, y + 1, mw, 23, PAPER, 6, 2); A.drawCoin(ctx, W - 10 - mw + 13, y + 12.5, 6.5); txt(ms, W - 18, y + 13, 15, INK, 'right', true);
   // 人气:白天显示按现在的摆法开张时是多少,夜里显示实时的。放在钱的左边;左边的内容太长放不下时不显示
-  const hm = night && G.N ? G.N.heat * G.N.xmult : (o => o.heat * o.xmult)(L.openPreview()), hs = '人气 ×' + hm.toFixed(1);
+  const hm = ui.show ? ui.show.cur : night && G.N ? G.N.heat * G.N.xmult : (o => o.heat * o.xmult)(L.openPreview()), hs = '人气 ×' + hm.toFixed(1), hb = ui.show ? ui.show.bump : 0;
   ctx.font = font(12, true); const hsw = ctx.measureText(hs).width;
   if (W - 18 - mw - hsw > (ar ? 20 + tw + 70 : 28 + tw + L.maxHearts() * 19)) {
-    txt(hs, W - 18 - mw, y + 13, 12, night ? '#ffb3d9' : WARM, 'right', true);
+    txt(hs, W - 18 - mw, y + 13, 12 + 5 * hb, ui.show ? GOLD : night ? '#ffb3d9' : WARM, 'right', true);
     if (S.phase !== 'night') hit(W - 24 - mw - hsw, y - 2, hsw + 12, 30, heatModal);   // 点人气:看人气从哪来、有哪些街型(夜里不弹,免得挡住结算)
   }
   // 目标进度条:一根木条,热度用红色填充,达标后变绿
   const gold = S.daily ? L.medalLines(L.themeOf(S.day))[2] : 0, ref = gold || T || (ar ? ui.best : 0);   // 进度条的满格:主线是目标,擂台是擂主成绩或个人最高
-  const bx = 12, by = y + 30, bw = W - 24, bh = 20, k = night && ref ? Math.min(1, ui.inc / ref) : 0;
-  const barText = !ar ? (night ? `热度 ${Math.round(ui.inc)} / 目标 ${T}` : `热度目标 ${T} · 客流 ${L.custCount() + 2 * L.perk('rich')} 人 · 每人最多买 ${L.capN()} 次`)
+  const over = night && !ar && T && ui.inc >= T, top = over ? T * L.OVER[L.OVER.length - 1] : ref, stars = over ? L.overStars(ui.inc, T) : 0;   // 达标以后进度条改成到 3 倍目标,标出达标和每颗星的位置
+  const bx = 12, by = y + 30, bw = W - 24, bh = 20, k = night && top ? Math.min(1, ui.inc / top) : 0;
+  const barText = !ar ? (over ? `热度 ${Math.round(ui.inc)} · 达标` + (stars ? ' 超额 ' + '★'.repeat(stars) : '') + (stars < L.OVER.length ? ` · 下一颗星 ${Math.round(T * L.OVER[stars])}` : ' · 满星') : night ? `热度 ${Math.round(ui.inc)} / 目标 ${T}` : `热度目标 ${T} · 客流 ${L.custCount() + 2 * L.perk('rich')} 人 · 每人最多买 ${L.capN()} 次`)
     : S.daily ? (night ? `热度 ${Math.round(ui.inc)} / 金牌 ${gold}` : `客流 ${L.custCount() + 2 * L.perk('rich')} 人 · 每人最多买 ${L.capN()} 次 · 金牌 ${gold}`)
     : night ? `热度 ${Math.round(ui.inc)}` + (T ? ` / 擂主 ${T}` : ui.best ? ` / 个人最高 ${ui.best}` : '')
       : `预算 ¥${ARENA.budget} · 客流 ${ARENA.cust} 人 · ` + (T ? `擂主 ${T}` : ui.best ? `个人最高 ${ui.best}` : '只营业一晚');
   A.rr(ctx, bx, by, bw, bh, 6); ctx.fillStyle = WOOD_D; ctx.fill();
-  if (k > 0) { ctx.save(); A.rr(ctx, bx, by, bw, bh, 6); ctx.clip(); ctx.fillStyle = k >= 1 ? GREEN : RED; ctx.fillRect(bx, by, bw * k, bh); ctx.restore(); }
+  if (k > 0) { ctx.save(); A.rr(ctx, bx, by, bw, bh, 6); ctx.clip(); ctx.fillStyle = over || k >= 1 ? GREEN : RED; ctx.fillRect(bx, by, bw * k, bh); ctx.restore(); }
+  if (over) for (const m of [1].concat(L.OVER.slice(0, -1))) { const x = bx + bw * m / L.OVER[L.OVER.length - 1]; ctx.fillStyle = INK; ctx.fillRect(x - 1, by + 2, 2, bh - 4); }
   A.rr(ctx, bx, by, bw, bh, 6); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
   txt(barText, W / 2, by + bh / 2 + .5, 11, PAPER, 'center', true);
   // 第三行:主线显示经营秘诀和挑战入口;擂台里显示提示和「看擂主摆法」
@@ -647,6 +763,10 @@ function drawHUD() {
       pill(W - 96, 52, '挑战', challengeModal);
       if (!dailyState().tries) { ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(W - 45, py - 11, 4.5, 0, 7); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke(); }   // 今天的每日挑战还没打:红点提醒
     }
+  }
+  if (S.phase === 'night' && G.N && G.N.hot) {   // 夜里:这一波还能吆喝几次
+    const n = G.N.shouts; plate(W - 130, py - 11, 88, 21, n > 0 ? PAPER : PAPER_D, 6, 2); txt(n > 0 ? `吆喝 ${n} 次` : '吆喝用完了', W - 86, py, 11, n > 0 ? RED : BROWN, 'center', true);
+    hit(W - 130, py - 14, 88, 28, () => toast(SHOUT_TIP, 2.5));
   }
   plate(W - 34, py - 11, 23, 21, PAPER, 10.5, 2); txt('?', W - 22.5, py, 13, INK, 'center', true); hit(W - 40, py - 14, 40, 28, helpModal);
 }
@@ -668,9 +788,12 @@ function drawPanel() {
     const sel = ui.sel;
     if (sel) {
       const stall = sel.kind === 'stall', id = stall ? sel.s.id : S.shop[sel.i].id, d = DEF[id], head = d.n + (stall ? ' Lv' + sel.s.lvl : '');
+      const old = stall && sel.s.lvl === 3 && !S.arena;   // 3 级摊位可以花钱升成老字号:右边多一个按钮,左边的字让出地方
       txt(head, 20, y + 24, 14, RED, 'left', true);
-      txt(d.sup ? '支援摊' : `售价 ${d.p} · 吸引 ${Math.round(d.a * 100)}%`, 30 + ctx.measureText(head).width, y + 24, 11, BROWN);
-      txt(wrap(stall && sel.s.lvl >= 3 && d.s3 ? '3 级招牌技:' + d.s3 : d.d, stall ? 250 : 335, 11)[0], 20, y + 42, 11, INK);
+      if (!old) txt(d.sup ? '支援摊' : `售价 ${d.p} · 吸引 ${Math.round(d.a * 100)}%`, 30 + ctx.measureText(head).width, y + 24, 11, BROWN);
+      const line2 = stall && sel.s.lvl >= 4 ? '老字号:售价比 3 级再高五成' + (d.s3 ? ',招牌技照旧' : '') : stall && sel.s.lvl >= 3 && d.s3 ? '3 级招牌技:' + d.s3 : old ? '花钱升成老字号:售价再高五成' : d.d;
+      txt(wrap(line2, old ? 150 : stall ? 250 : 335, 11)[0], 20, y + 42, 11, INK);
+      if (old) btn(W - 194, y + 17, 94, 28, `老字号 ¥${L.oldCost(sel.s)}`, 'sec', () => oldAt(sel.s));
       if (stall) btn(W - 94, y + 17, 76, 28, `退货 +¥${L.sellVal(sel.s)}`, 'pri', () => { L.sell(sel.s); ui.sel = null; sfx.place(); });
     } else {
       const gi = L.goalInfo();   // 今晚有小目标时,第一行换成小目标
@@ -720,7 +843,7 @@ function drawPanel() {
     txt('口渴,饮品翻倍', lx + 13, ly, 10.5, WARM); lx += 96;
     txt('♪', lx + 4, ly, 12, '#ffe680', 'center', true); txt('开心,多付四成', lx + 13, ly, 10.5, WARM); lx += 96;
     txt('饱', lx + 5, ly, 10, '#ffb38a', 'center', true); txt('不再买小吃', lx + 14, ly, 10.5, WARM);
-    ui.feed.forEach((f, i) => { ctx.globalAlpha = Math.min(1, f.life); txt(f.s, W - 16, y + 28 + i * 22, 12, i ? PAPER : '#ffd98a', 'right', !i); }); ctx.globalAlpha = 1;
+    ui.feed.forEach((f, i) => { ctx.globalAlpha = Math.min(1, f.life); txt(f.s, W - 16, y + 48 + i * 19, 11.5, i ? PAPER : '#ffd98a', 'right', !i); }); ctx.globalAlpha = 1;   // 从第二行起排,不和左上的「第几波 · 还有几位」挤在一行
     const ev = L.eventInfo(); if (ev) txt(`今晚${ev.n}`, 20, y + 190, 12, '#ffb38a', 'left', true);
     const gi = L.goalInfo(); if (gi) txt(`小目标:${gi.text}(${gi.cur}/${gi.n})` + (gi.done ? ' 达成' : ''), 20, y + 162, 11.5, gi.done ? '#9fe6b8' : WARM, 'left', true);
     if (S.phase === 'night') btn(W - 126, y + 170, 116, 40, ui.speed > 1 ? '正常速度' : '加速 ×2', 'sec', () => { ui.speed = ui.speed > 1 ? 1 : 2; sfx.tap(); });
@@ -739,7 +862,7 @@ function drawBreak(y) {
   txt('点一个摊位,再点要去的地块。不调整也可以直接继续', 20, y + 101, 11, WARM);
   txt(`热度 ${N.income}` + (T ? ` / 目标 ${T}` : '') + ` · 流水 ¥${N.flow} × 人气 ${heatText(N)}`, 20, y + 125, 12, '#ffb3d9', 'left', true);
   const gi = L.goalInfo(); if (gi) txt(`小目标:${gi.text}(${gi.cur}/${gi.n})` + (gi.done ? ' 达成' : ''), 20, y + 147, 11.5, gi.done ? '#9fe6b8' : WARM, 'left', true);
-  btn(10, y + 170, W - 20, 40, nw ? `继续营业:迎接${nw.n}` : '继续营业', 'pri', () => { L.nextWave(); ui.sel = null; ui.spawn = .3; ui.endT = 0; sfx.open(); });
+  btn(10, y + 170, W - 20, 40, nw ? `继续营业:迎接${nw.n}` : '继续营业', 'pri', () => { const h0 = N.heat, x0 = N.xmult; L.nextWave(); midShow(h0, x0); ui.sel = null; ui.spawn = .3; ui.endT = 0; sfx.open(); });
 }
 // 跳过今晚:先说清楚代价和换来什么
 function skipModal() {
@@ -755,8 +878,8 @@ function drawFx() {
   const tx = W / 2, ty = LAY.top + 38;
   for (const c of ui.coins) { c.t += DT; if (c.t < 0) continue; const k = Math.min(1, c.t / c.d), e = k * k * (3 - 2 * k), mx = (c.x0 + tx) / 2 + c.cx, my = Math.min(c.y0, ty) - 30; A.drawCoin(ctx, (1 - e) * (1 - e) * c.x0 + 2 * e * (1 - e) * mx + e * e * tx, (1 - e) * (1 - e) * c.y0 + 2 * e * (1 - e) * my + e * e * ty, 4.5); }
   ui.coins = ui.coins.filter(c => c.t < c.d);
-  for (const p of ui.pops) { p.t += DT; const k = p.t / .8; ctx.globalAlpha = Math.max(0, 1 - k * k); const sc = p.big ? 1.25 + .5 * Math.max(0, .15 - p.t) / .15 : 1; ctx.font = font(13 * sc, true); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,8,20,.8)'; ctx.strokeText(p.s, p.x, p.y - k * 26); ctx.fillStyle = p.c; ctx.fillText(p.s, p.x, p.y - k * 26); }
-  ctx.globalAlpha = 1; ui.pops = ui.pops.filter(p => p.t < .8);
+  for (const p of ui.pops) { p.t += DT; const k = p.t / (p.life || .8); ctx.globalAlpha = Math.max(0, 1 - k * k); const sc = p.big ? 1.25 + .5 * Math.max(0, .15 - p.t) / .15 : 1; ctx.font = font(13 * sc, true); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,8,20,.8)'; ctx.strokeText(p.s, p.x, p.y - k * 26); ctx.fillStyle = p.c; ctx.fillText(p.s, p.x, p.y - k * 26); }
+  ctx.globalAlpha = 1; ui.pops = ui.pops.filter(p => p.t < (p.life || .8));
   for (const r of ui.rings) { r.t += DT; const k = r.t / .45; ctx.strokeStyle = `rgba(${r.col},${1 - k})`; ctx.lineWidth = 3 * (1 - k) + 1; ctx.beginPath(); ctx.arc(r.x, r.y, 12 + 34 * k, 0, 7); ctx.stroke(); A.glow(ctx, r.x, r.y, 40, r.col, .35 * (1 - k)); }
   ui.rings = ui.rings.filter(r => r.t < .45);
 }
@@ -766,7 +889,10 @@ function drawModal() {
   m.a = Math.min(1, (m.a || 0) + DT * 7);
   ctx.fillStyle = `rgba(12,7,4,${.72 * m.a})`; ctx.fillRect(0, 0, W, H); ui.hits.length = 0; hit(0, 0, W, H, () => { });
   const w = 319, x = (W - w) / 2, lines = m.small ? m.lines.flatMap(s => wrap(s, w - 48, 12.5)) : m.lines || [];
-  const hPerks = (m.perks || []).length * 66, hBtn = m.buttons.length * 54, hGrid = m.grid ? Math.ceil(m.grid.length / 4) * 84 + 2 : 0, rest = 66 + hPerks + hGrid + hBtn + (m.timer != null ? 26 : 8);
+  const np = (m.perks || []).length; let ph = 66;   // 秘诀一行多高:放不下时(栏位满了换秘诀、小屏)压扁一点,最矮 50
+  const over = 66 * np + m.buttons.length * 54 + 74 + lines.length * (m.small ? 16 : 24) + (m.grid ? Math.ceil(m.grid.length / 4) * 84 : 0) - (H - 16);
+  if (np && over > 0) ph = Math.max(50, 66 - Math.ceil(over / np));
+  const hPerks = np * ph, hBtn = m.buttons.length * 54, hGrid = m.grid ? Math.ceil(m.grid.length / 4) * 84 + 2 : 0, rest = 66 + hPerks + hGrid + hBtn + (m.timer != null ? 26 : 8);
   // 小字行距 21;行数太多、纸牌高过屏幕时(小屏上的「怎么玩」)把行距压紧,最紧 16
   const lh = m.small ? (lines.length ? Math.max(16, Math.min(21, (H - 16 - rest) / lines.length)) : 21) : 24;
   const h = rest + lines.length * lh, y = (H - h) / 2, e = 1 - Math.pow(1 - m.a, 3);
@@ -790,7 +916,7 @@ function drawModal() {
       if (im) { const hh = 40, ww = hh * im.width / im.height; ctx.drawImage(im, gx + 34 - ww / 2, gy + 9, ww, hh); }
       else { ctx.font = '22px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(d.e, gx + 34, gy + 30); }
       ctx.globalAlpha = m.a;
-      txt(d.n, gx + 34, gy + 58, 11.5, INK, 'center', true); txt(locked ? `再过 ${g.need} 晚` : d.t, gx + 34, gy + 69, 8.5, locked ? RED : BROWN, 'center');
+      txt(d.n, gx + 34, gy + 58, 11.5, INK, 'center', true); txt(locked ? `还差 ${g.need} 进度` : d.t, gx + 34, gy + 69, 8.5, locked ? RED : BROWN, 'center');
       hit(gx, gy, 68, 80, () => stallModal(g.id));
     });
     cy += hGrid;
@@ -798,17 +924,17 @@ function drawModal() {
   for (const pk of m.perks || []) {
     const own = pk.icon ? 0 : L.perk(pk.p.k);   // 经营秘诀写「已有几个」;摊主不写
     ctx.globalAlpha = m.a * (pk.locked ? .5 : 1);
-    plate(x + 16, cy, w - 32, 56, '#fff5df', 7, 2);
-    drawToken(pk.icon || 'perk_' + pk.p.k, x + 44, cy + 28, pk.icon && pk.icon.indexOf('owner_') === 0 ? 48 : 36, INK);   // 摊主头像画大一点,不然看不清脸
-    txt(pk.p.n + (pk.p.r ? ' · 稀有' : '') + (own ? `(已有 ${own} 级)` : ''), x + 72, cy + 19, 14, pk.p.r ? '#8a4fd0' : RED, 'left', true); txt(pk.note || pk.p.d, x + 72, cy + 39, 11.5, pk.locked ? BROWN : INK);
+    const pr = ph - 10; plate(x + 16, cy, w - 32, pr, '#fff5df', 7, 2);
+    drawToken(pk.icon || 'perk_' + pk.p.k, x + 44, cy + pr / 2, Math.min(pk.icon && pk.icon.indexOf('owner_') === 0 ? 48 : 36, pr - 8), INK);   // 摊主头像画大一点,不然看不清脸
+    txt(pk.name || pk.p.n + (pk.p.r ? ' · 稀有' : '') + (own ? (m.swap ? `(${own} 级)` : `(${own}→${own + 1} 级)`) : ''), x + 72, cy + pr * .34, 14, pk.p.r ? '#8a4fd0' : RED, 'left', true); txt(pk.note || pk.p.d, x + 72, cy + pr * .7, 11.5, pk.locked ? BROWN : INK);
     ctx.globalAlpha = m.a;
-    hit(x + 16, cy, w - 32, 58, pk.fn); cy += 66;
+    hit(x + 16, cy, w - 32, pr + 2, pk.fn); cy += ph;
   }
   cy += 4; for (const b of m.buttons) { btn(x + 20, cy, w - 40, 44, b.label, b.kind, b.fn); cy += 54; }
   ctx.restore();
 }
 function drawToast() {
-  const t = ui.toast; if (!t) return; t.life -= DT; if (t.life <= 0) { ui.toast = null; return; }
+  const t = ui.toast; if (!t || (ui.modal && !t.m)) return; t.life -= DT; if (t.life <= 0) { ui.toast = null; return; }
   ctx.globalAlpha = Math.min(1, t.life * 3); ctx.font = font(13, true); const w = ctx.measureText(t.t).width + 28;
   plate(W / 2 - w / 2, H * .42, w, 32, PAPER, 6, 2); txt(t.t, W / 2, H * .42 + 16.5, 13, INK, 'center', true); ctx.globalAlpha = 1;
 }
@@ -830,7 +956,7 @@ const TUT = [
 ];
 function startTut() { ui.tut = { step: 0, skip: null }; G.S.shop = ['kebab', 'tea', 'lamp', 'candy'].map(id => ({ id, sold: false })); }
 function endTut() { ui.tut = null; ui.combos = []; ui.pats = []; P.store.set('tut', '1'); persist(); }   // combos 置空:引导里摆出来的搭配,引导结束后提示一次
-function nextTut() { ui.tut.step++; ui.tut.skip = null; if (ui.tut.step >= TUT.length) endTut(); }
+function nextTut() { ui.tut.step++; ui.tut.skip = null; ui.tut.hide = false; ui.tut.pt = 0; if (ui.tut.step >= TUT.length) endTut(); }
 // 引导的指示箭头:金色粗箭头,up 为 true 时朝上指
 function pointer(x, y, up) {
   const k = up ? 1 : -1; ctx.beginPath();
@@ -840,9 +966,12 @@ function pointer(x, y, up) {
 }
 function drawTut() {
   const t = ui.tut; if (!t || ui.modal) return; const st = TUT[t.step];
-  if (st.passive && G.S.phase !== 'night') return;
+  if (st.passive) {   // 夜里那条说明:点一下就收起,不点 7 秒后自己淡出,不整晚挡着街道
+    if (G.S.phase !== 'night' || t.hide) return; t.pt = (t.pt || 0) + DT; if (t.pt > 7) { t.hide = true; return; }
+    ctx.globalAlpha = Math.min(1, (7 - t.pt) * 2);
+  }
   const msg = typeof st.msg === 'function' ? st.msg() : st.msg, lines = msg.split('\n').reduce((a, s) => a.concat(wrap(s, 262, 13.5)), []);
-  const bw = 300, bh = 24 + lines.length * 21 + (st.any ? 22 : 0), bx = (W - bw) / 2, r = st.rect && st.rect(); let by;
+  const bw = 300, bh = 24 + lines.length * 21 + (st.any || st.passive ? 22 : 0), bx = (W - bw) / 2, r = st.rect && st.rect(); let by;
   if (r) {
     // 四块遮罩围出一个亮着的目标区域
     const x0 = r.x - 4, y0 = r.y - 4, x1 = r.x + r.w + 4, y1 = r.y + r.h + 4, pulse = .5 + .5 * Math.sin(ui.t * 6), below = r.y + r.h / 2 < H / 2, bob = Math.sin(ui.t * 6) * 4;
@@ -859,11 +988,13 @@ function drawTut() {
   lines.forEach((s, i) => txt(s, bx + 18, by + 23 + i * 21, 13.5, '#3a2410', 'left', true));
   if (st.any) txt('点任意位置继续', W / 2, by + bh - 15, 11, '#a08660', 'center');
   if (!st.passive) { txt('跳过', bx + bw - 14, by + 14, 11, '#a08660', 'right'); t.skip = { x: bx + bw - 52, y: by - 4, w: 56, h: 30 }; }
+  else txt('点一下收起', bx + bw - 14, by + bh - 15, 11, '#a08660', 'right');
+  ctx.globalAlpha = 1;
 }
 // 引导期间的点击:只放行「跳过」、任意处继续、或亮着的目标区域。返回 true 表示这次点击已被引导消化
 function tutTap(x, y) {
   const t = ui.tut; if (!t || ui.modal) return false; const st = TUT[t.step], inR = r => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-  if (st.passive) return false;
+  if (st.passive) { t.hide = true; return false; }   // 收起说明,这次点击照常生效
   if (inR(t.skip)) { endTut(); sfx.tap(); return true; }
   if (st.any) { nextTut(); sfx.tap(); return true; }
   if (!inR(st.rect())) return true;
@@ -883,10 +1014,18 @@ function frame() {
 // 推进一帧。dt 只在调试时传入(页面在后台时浏览器不触发动画帧,用它手动推进)
 function tick(dt) {
   const now = Date.now(); DT = dt || Math.min(.05, (now - last) / 1000 || 0); last = now; ui.t += DT;
-  const S = G.S; layout(); updateNight(DT);
+  const S = G.S; layout(); updateShow(DT); updateNight(DT);
   ui.dark += ((S.phase === 'day' ? .35 : S.phase === 'break' ? .6 : 1) - ui.dark) * Math.min(1, DT * 2.5);
+  if (S.money < ui.money) ui.money = S.money;   // 花钱立刻显示真实余额,只有进账才滚动
   ui.money += (S.money - ui.money) * Math.min(1, DT * 10); if (Math.abs(S.money - ui.money) < .6) ui.money = S.money;
   if (G.N) { ui.inc += (G.N.income - ui.inc) * Math.min(1, DT * 12); if (Math.abs(G.N.income - ui.inc) < .6) ui.inc = G.N.income; }
+  if (G.N && (S.phase === 'night' || S.phase === 'break') && !S.arena) {   // 热度冲过目标:亮一下「达标」;之后每到 1.5、2、3 倍再亮一颗星
+    const T = L.target(), lv = T && ui.inc >= T ? 1 + L.overStars(ui.inc, T) : 0;
+    if (lv > (ui.lvl || 0)) {
+      ui.lvl = lv; ui.banner = lv === 1 ? { s: '达标!', sub: '再往上冲有超额奖励', t: 0, col: GREEN } : { s: '超额 ' + '★'.repeat(lv - 1), sub: `热度到了目标的 ${L.OVER[lv - 2]} 倍`, t: 0, col: '#c98a12' };
+      if (lv === 1) sfx.ok(); else sfx.merge();
+    }
+  }
   for (const f of ui.feed) f.life -= DT; ui.feed = ui.feed.filter(f => f.life > 0);
   // 好友战书:等回到白天、没有弹窗时再进擂台,不打断正在进行的夜晚
   if (ui.tut) { const st = TUT[ui.tut.step]; if (st.done && st.done()) nextTut(); }
@@ -924,13 +1063,14 @@ function drawAll(overlay) {
   if (P.offX) { ctx.fillStyle = '#0a0806'; ctx.fillRect(0, 0, P.canvas.width, P.canvas.height); }   // 宽屏:两侧留边涂黑
   ctx.setTransform(k, 0, 0, k, P.offX * P.dpr, 0);
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();                                      // 画面不画到留边上
-  drawScene(); drawHUD(); drawPanel(); drawFx(); if (overlay) { drawTut(); drawModal(); drawToast(); }
+  drawScene(); drawHUD(); drawPanel(); drawFx(); drawShow(); if (overlay) { drawTut(); drawModal(); drawToast(); }
   ctx.restore();
 }
 P.onTap((px, py) => {
   if (!ac) ac = P.createAudio(); if (ac && ac.state === 'suspended' && ac.resume) ac.resume();
   const x = (px - P.offX) / P.scale, y = py / P.scale;
   if (tutTap(x, y)) return;
+  if (ui.toast && !ui.modal) ui.toast.life = Math.min(ui.toast.life, .2);   // 点一下屏幕,提示就收起来(这次点击照常生效)
   // 点击区域有两种:普通的矩形;或者带 at 函数的(场景用它把屏幕坐标换算成地块)
   for (let i = ui.hits.length - 1; i >= 0; i--) {
     const h = ui.hits[i], v = h.at ? h.at(x, y) : x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
