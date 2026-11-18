@@ -22,6 +22,7 @@ function spendUp() {
   const S = G.S, opts = [];
   for (const s of S.stalls) if (s.lvl === 3 && L.oldCost(s) <= S.money) opts.push(() => L.makeOld(s));
   for (const p of L.ownedPerks()) if (L.canPerkUp(p) && L.perkUpCost(p) <= S.money) opts.push(() => L.buyPerkUp(p));
+  for (const b of L.BUILDS) if (L.buildCost(b) <= S.money) opts.push(() => L.buyBuild(b));   // 夜市建设
   return opts.length ? opts[Math.random() * opts.length | 0]() === 'ok' : false;
 }
 function day() {

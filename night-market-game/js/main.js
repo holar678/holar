@@ -321,6 +321,7 @@ const stallsOf = uids => G.S.stalls.filter(s => uids.indexOf(s.uid) >= 0);
 function openShow() {
   const N = G.N, steps = [], front = [...N.stats.keys()];
   if (N.parts.perk > 0) steps.push({ s: `秘诀 +${N.parts.perk}`, v: N.parts.perk, at: [], row: -1 });
+  if (N.parts.build > 0) steps.push({ s: `牌楼 +${N.parts.build}`, v: N.parts.build, at: [], row: -1 });
   const cs = L.activeCombos().filter(x => N.stats.has(x.a.uid) && N.stats.has(x.b.uid)), cv = cs.length ? r2(N.parts.combo / cs.length) : 0;
   for (const x of cs) steps.push({ s: `${x.c.n} +${cv}`, v: cv, at: [x.a, x.b], col: '255,201,74' });
   for (const p of L.streetPatterns()) steps.push({ s: `${p.n} +${p.heat}`, v: p.heat, at: stallsOf(p.uids.length ? p.uids : front), col: '255,179,217' });
@@ -433,7 +434,7 @@ function topEarners() {
 const heatText = o => o.heat.toFixed(1) + (o.xmult > 1 ? ' × ' + o.xmult : '');
 const scoreLine = r => `流水${NB}¥${r.flow} × 人气${NB}${heatText(r)} = 热度${NB}${r.inc}`;
 // 人气的来源明细:「起步 1 · 招牌搭配 +0.4 · 街型 +0.8 · 口渴连击 +0.5……」,带了稀有秘诀再写乘了多少
-const SRC_N = [['base', '起步'], ['perk', '秘诀'], ['combo', '招牌搭配'], ['pat', '街型'], ['mid', '中场'], ['thirst', '口渴连击'], ['maxed', '买满'], ['critic', '好评']];
+const SRC_N = [['base', '起步'], ['perk', '秘诀'], ['build', '建设'], ['combo', '招牌搭配'], ['pat', '街型'], ['mid', '中场'], ['thirst', '口渴连击'], ['maxed', '买满'], ['critic', '好评']];
 const srcLine = (src, xmult) => '人气来源:' + SRC_N.filter(([k]) => src[k] > 0).map(([k, n]) => `${n}${NB}${k === 'base' ? '' : '+'}${Math.round(src[k] * 100) / 100}`).join(' · ') + (xmult > 1 ? `;稀有秘诀再 ×${xmult}` : '');
 const patText = p => `${p.n}${p.count > 1 ? NB + '×' + p.count : ''}${NB}+${p.heat}`;
 // 人气从哪来:白天按现在的摆法预览开张时的人气,中场显示当晚已经涨到多少;下面列出所有街型的规则
@@ -552,7 +553,7 @@ function restart() {
 function helpModal() {
   const next = L.UNLOCKS.find(u => prof.cleared < u.at);   // 下一个要解锁的摊位
   ui.modal = {
-    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '热度到目标的 1.5、2、3 倍各得一颗星,每颗星收摊多给一笔钱', `夜里点靠街的摊位「吆喝」:接下来 ${L.SHOUT_N} 单售价翻倍,每波 ${L.SHOUTS} 次`, '第 2 波起常有美食评论家(头顶「评」字):他在正在吆喝的摊上买东西,人气 +0.3', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '同一条秘诀再选一次会升级,最高 3 级(稀有的只有 1 级);白天点顶上的秘诀栏也能花钱升级', '3 级摊位白天点一下,可以花钱升成「老字号」:卖东西的摊售价再高五成,支援摊的加成再强一档', '没达标也有保底进账,输一晚不至于什么都买不起', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息(没达标也有):每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
+    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '热度到目标的 1.5、2、3 倍各得一颗星,每颗星收摊多给一笔钱', `夜里点靠街的摊位「吆喝」:接下来 ${L.SHOUT_N} 单售价翻倍,每波 ${L.SHOUTS} 次`, '第 2 波起常有美食评论家(头顶「评」字):他在正在吆喝的摊上买东西,人气 +0.3', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '同一条秘诀再选一次会升级,最高 3 级(稀有的只有 1 级);白天点顶上的秘诀栏也能花钱升级', '3 级摊位白天点一下,可以花钱升成「老字号」:卖东西的摊售价再高五成,支援摊的加成再强一档', '没达标也有保底进账,输一晚不至于什么都买不起', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息(没达标也有):每 ¥10 生 ¥1,有上限', '钱多了点顶栏的「建设」:牌楼、路灯、广告牌,没有上限,每级价钱翻倍', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
       .concat(!G.S.arena && L.stake() > 1 ? [`本局${L.STAKES[L.stake() - 1].n}:${L.STAKES.slice(1, L.stake()).map(x => x.d).join(';')}`] : [], !G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : [], [`版本 ${P.version}${P.env ? '(' + P.env + ')' : ''}`]),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }, { label: `音效:${prof.sound ? '开' : '关'}`, kind: 'sec', fn: () => { prof.sound = !prof.sound; saveProf(); helpModal(); } }]
       .concat(G.S.arena ? [] : [{ label: '重新开始主线', kind: 'sec', fn: restart }])
@@ -614,6 +615,19 @@ function perkListModal() {
     perks: own.map(p => ({ p, name: `${p.n}${p.r ? ' · 稀有' : ''}(${L.perk(p.k)} 级${L.canPerkUp(p) ? (day ? ` · 升级 ¥${L.perkUpCost(p)}` : ' · 可升级') : ''})`,
       note: p.k === 'regular' ? `每晚售价永久 +5%,已涨 ${Math.round(L.grown('regular') * L.REGULAR * 100)}%` : p.k === 'fame' ? `每晚每种街型人气 +0.05,已攒 +${L.grown('fame')}` : perkText(p, L.perk(p.k)),   // 成长型秘诀:写上已经攒了多少
       fn: () => perkUpModal(p) })),
+    buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }]
+  };
+}
+// 夜市建设:三样设施各一行,点一行花钱升一级。价钱每级翻倍,没有上限
+function buildModal() {
+  ui.modal = {
+    title: '夜市建设', small: true, lines: ['花钱升级街上的公共设施,整局有效,没有上限', '每升一级,下一级的价钱翻倍(还会跟着物价涨)'],
+    perks: L.BUILDS.map(b => { const lv = L.buildLv(b.k), c = L.buildCost(b);
+      return { p: { k: b.k, n: b.n, d: b.d(lv + 1) }, icon: b.icon, name: `${b.n}(${lv} 级 · 升级 ¥${c})`, note: (lv ? `现在${b.d(lv).replace(/^每晚|^所有/, '')},` : '') + '升级后:' + b.d(lv + 1), fn: () => {
+        const r = L.buyBuild(b);
+        if (r === 'ok') { sfx.merge(); buildModal(); toast(`「${b.n}」升到 ${lv + 1} 级`); }
+        else if (r === 'nomoney') { sfx.bad(); toast(`钱不够,还差 ¥${c - G.S.money}`); }
+      } }; }),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }]
   };
 }
@@ -786,10 +800,11 @@ function drawHUD() {
     else txt(S.daily ? `今日主题:${L.themeOf(S.day).d}` : S.rival ? '热度超过擂主就算赢' : '摆出最高热度,再发给好友来挑战', 12, py, 11, WARM);
   } else {
     const own = L.ownedPerks();
-    if (own.length) { let x = 12; const lab = `秘诀 ${own.length}/${L.perkCap()}`; txt(lab, x, py, 11, WARM); x += ctx.measureText(lab).width + 8; for (const p of own) { if (x > W - 186) break; drawToken('perk_' + p.k, x + 9, py, 18, TXT); x += 20; if (L.perk(p.k) > 1) { const s = '×' + L.perk(p.k); txt(s, x, py, 11, TXT, 'left', true); x += ctx.measureText(s).width; } x += 4; } }
+    if (own.length) { let x = 12; const lab = `秘诀 ${own.length}/${L.perkCap()}`; txt(lab, x, py, 11, WARM); x += ctx.measureText(lab).width + 8; for (const p of own) { if (x > W - 238) break; drawToken('perk_' + p.k, x + 9, py, 18, TXT); x += 20; if (L.perk(p.k) > 1) { const s = '×' + L.perk(p.k); txt(s, x, py, 11, TXT, 'left', true); x += ctx.measureText(s).width; } x += 4; } }
     else txt('每晚达标后选一条经营秘诀', 12, py, 11, WARM);
-    hit(0, py - 12, W - 164, 24, perkListModal);
+    hit(0, py - 12, W - 216, 24, perkListModal);
     if (S.phase === 'day') {
+      pill(W - 206, 46, '建设', buildModal);
       pill(W - 154, 52, '图鉴', codexModal);
       pill(W - 96, 52, '挑战', challengeModal);
       if (!dailyState().tries) { ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(W - 45, py - 11, 4.5, 0, 7); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke(); }   // 今天的每日挑战还没打:红点提醒

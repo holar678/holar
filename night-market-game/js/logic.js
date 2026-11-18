@@ -11,7 +11,9 @@ export const supK = lvl => SUP_LV[lvl - 1] || 1;   // 第 4 级是「老字号�
 // 同一天第三次:真人试玩 0.9.3 时每晚热度是目标的 4~14 倍。把稀有秘诀改成相加、支援摊高等级递减、小目标和超额奖励改成按流水给以后重新定:
 // 「会摆」的新玩家通关约 46%、累计 30 晚约 33%(后来加了停水、限流两场大考,约 41% 和 32%),每晚中位数约为目标的 1.4~2.2 倍;真人试玩比「会摆」强不少(上次约在它的前一成),应该还有冲星的余地
 // (上一组是 50, 300, 800, 3500, 11000, 20000, 80000, 140000, 160000, 230000)
-export const TARGET = [60, 450, 1500, 6500, 18000, 32000, 110000, 180000, 160000, 200000];
+// 同一天第四次:加了「夜市建设」(后期的钱有了去处),「会摆」的试玩也改成先换几次货再花钱,明显变强。按它重定(上一组是 60, 450, 1500, 6500, 18000, 32000, 110000, 180000, 160000, 200000):
+// 「会摆」新玩家通关约 55%,累计 30 晚约 29%,累计 60 晚约 45%;每晚中位数,新玩家约为目标的 1.9~2.7 倍,累计 30 晚约 1.3~1.9 倍。「随手摆」几乎过不了
+export const TARGET = [60, 550, 2000, 8000, 26000, 48000, 120000, 200000, 210000, 260000];
 const INFL = 1.4; // 物价每晚上涨的倍率,防止后期钱花不完
 
 // s3: 升到 3 级后多出来的「招牌技」(只有售卖摊有),效果在 trySell 和 statOf 里按摊位写
@@ -393,6 +395,18 @@ export function makeOld(s) {
   const c = oldCost(s); if (S.money < c) return 'nomoney'; S.money -= c; s.lvl = 4; return 'ok';
 }
 // 秘诀花钱升一级:白天在「已有的经营秘诀」里点。价钱 = PERK_UP_K × 现在的级数,跟着物价涨。稀有的和只有一级的不能升
+// 夜市建设:主线白天花钱升级的三样公共设施,没有上限,每升一级价钱翻倍(再乘物价)。
+// 加它是因为后期摊位摆满、都升成老字号、秘诀升满以后,钱就没地方花了(自动试玩第 9、10 晚白天花完还剩几万)。
+// 价钱翻倍,所以永远买得起下一级,但越往后越不划算,要和进货、老字号、秘诀升级比着花。擂台和每日挑战里没有
+export const BUILDS = [
+  { k: 'gate', n: '牌楼', icon: 'perk_warm', base: 80, d: lv => `每晚开张人气 +${Math.round(0.15 * lv * 100) / 100}` },
+  { k: 'light', n: '路灯', icon: 'perk_price', base: 120, d: lv => `所有售价 +${6 * lv}%` },
+  { k: 'ad', n: '广告牌', icon: 'perk_more', base: 100, d: lv => `每晚客流 +${2 * lv} 人` },
+];
+export const buildLv = k => (!G.S.arena && G.S.build && G.S.build[k]) || 0;
+export const buildCost = b => Math.ceil(b.base * Math.pow(2, buildLv(b.k)) * infl());
+export function buyBuild(b) { const S = G.S; if (S.arena || S.phase !== 'day') return 'no';
+  const c = buildCost(b); if (S.money < c) return 'nomoney'; S.money -= c; S.build = Object.assign({}, S.build); S.build[b.k] = (S.build[b.k] || 0) + 1; return 'ok'; }
 export const PERK_UP_K = 80;
 export const perkUpCost = p => Math.ceil(PERK_UP_K * infl() * Math.max(1, perk(p.k)));
 export const canPerkUp = p => !G.S.arena && perk(p.k) > 0 && perk(p.k) < perkMax(p);
@@ -403,7 +417,7 @@ export function buyPerkUp(p) {
 // 没达标的保底进账:流水太少也至少拿这么多,免得前期输一晚就什么都买不起、一路输到底
 export const failFloor = () => Math.ceil(35 * infl());
 export const refCost = () => G.S.freeRef > 0 && !G.S.arena ? 0 : Math.ceil(5 * infl() * (owner() === 'local' ? .5 : 1) * (stake() >= 3 ? 2 : 1));   // 老供货商:每晚头一次换货免费
-export const custCount = () => { const ev = eventOf(); return Math.round(((G.S.arena ? (G.S.custBase || ARENA.cust) : 8 + 2 * G.S.night + (owner() === 'star' ? 3 : 0)) + 4 * perk('more')) * (ev && ev.cust || 1)); };
+export const custCount = () => { const ev = eventOf(); return Math.round(((G.S.arena ? (G.S.custBase || ARENA.cust) : 8 + 2 * G.S.night + (owner() === 'star' ? 3 : 0)) + 4 * perk('more') + 2 * buildLv('ad')) * (ev && ev.cust || 1)); };
 export const capN = () => { const ev = eventOf(); return Math.max(1, Math.min(ev && ev.capMax || 99, 3 + perk('big') + (ev && ev.cap || 0))); };
 // 新摊位随累计过关的晚数逐步解锁,给玩家一个长期目标。擂台里不受限制,保证规则对所有人相同
 export const UNLOCKS = [{ id: 'tofu', at: 4 }, { id: 'ice', at: 10 }, { id: 'phone', at: 18 }, { id: 'cat', at: 28 }, { id: 'lemon', at: 36 }, { id: 'balloon', at: 45 }, { id: 'crayfish', at: 55 }];
@@ -442,7 +456,7 @@ export function statOf(s) {
     if (o.id === 'cat') flat += 2 * k;
     if (o.id === 'tofu' && o.lvl < 3 && d.cat !== 'food') aMul -= 0.3;   // 3 级臭豆腐不再熏邻摊
   }
-  pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price')) * (1 + REGULAR * grown('regular'));   // 秘诀「熟客」:每营业一晚永久涨一点
+  pm *= LV[s.lvl - 1] * (1 + 0.15 * perk('price')) * (1 + REGULAR * grown('regular')) * (1 + 0.06 * buildLv('light'));   // 夜市建设「路灯」   // 秘诀「熟客」:每营业一晚永久涨一点
   if (perk('inpat') && streetPatterns().some(p => p.uids.indexOf(s.uid) >= 0)) pm *= 1 + 0.12 * perk('inpat');   // 秘诀「街面招牌」
   if (s.r >= ROWS - 2) pm *= 1 + 0.3 * perk('tail');
   const seen = {};   // 招牌搭配:同一种搭配对一个摊位只算一次
@@ -499,8 +513,8 @@ function calcStats() { const m = new Map(); for (const s of G.S.stalls) if (isFr
 function calcOpen(stats) {
   const front = G.S.stalls.filter(s => stats.has(s.uid)), combos = activeCombos().filter(x => stats.has(x.a.uid) && stats.has(x.b.uid)).length;
   const pats = streetPatterns(), kinds = new Set(pats.map(p => p.k)).size, r2 = v => Math.round(v * 100) / 100;
-  const parts = { base: 1, perk: r2(0.3 * perk('warm') + grown('fame')), combo: r2(combos * (HEAT.combo + 0.2 * perk('pair'))), pat: r2(pats.reduce((a, p) => a + p.heat, 0)) };
-  const heat = r2(parts.base + parts.perk + parts.combo + parts.pat);
+  const parts = { base: 1, perk: r2(0.3 * perk('warm') + grown('fame')), build: r2(0.15 * buildLv('gate')), combo: r2(combos * (HEAT.combo + 0.2 * perk('pair'))), pat: r2(pats.reduce((a, p) => a + p.heat, 0)) };
+  const heat = r2(parts.base + parts.perk + parts.build + parts.combo + parts.pat);
   let x = 1;   // 稀有倍数:各条稀有秘诀的加成相加
   if (perk('xpat')) x += 0.15 * kinds;
   if (perk('xcombo')) x += 0.2 * combos;

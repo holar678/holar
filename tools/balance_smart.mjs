@@ -71,9 +71,10 @@ function spendUp() {
   const S = G.S, opts = [];
   for (const s of S.stalls) if (s.lvl === 3 && L.oldCost(s) <= S.money) opts.push({ cost: L.oldCost(s), go: () => { s.lvl = 4; }, back: () => { s.lvl = 3; }, buy: () => L.makeOld(s) });
   for (const p of L.ownedPerks()) if (L.canPerkUp(p) && L.perkUpCost(p) <= S.money) opts.push({ cost: L.perkUpCost(p), go: () => { S.perks[p.k]++; }, back: () => { S.perks[p.k]--; }, buy: () => L.buyPerkUp(p) });
+  for (const b of L.BUILDS) if (L.buildCost(b) <= S.money) opts.push({ cost: L.buildCost(b), ad: b.k === 'ad', go: () => { S.build = Object.assign({}, S.build); S.build[b.k] = (S.build[b.k] || 0) + 1; }, back: () => { S.build[b.k]--; }, buy: () => L.buyBuild(b) });   // 夜市建设
   if (!opts.length) return false;
   let pick = opts[Math.random() * opts.length | 0];
-  if (SMART) { const b = score(); let bv = -1; for (const o of opts) { o.go(); const v = (score() - b) / o.cost; o.back(); if (v > bv) { bv = v; pick = o; } } }
+  if (SMART) { const b = score(); let bv = -1; for (const o of opts) { o.go(); const v = (o.ad ? b * 2 / L.custCount() : score() - b) / o.cost; o.back(); if (v > bv) { bv = v; pick = o; } } }
   return pick.buy() === 'ok';
 }
 function day() {
@@ -91,7 +92,8 @@ function day() {
       if (!spot) continue; S.money -= cost; o.sold = true; S.stalls.push({ uid: uid++, id: o.id, lvl: 1, c: spot[0], r: spot[1] }); did = true;
     }
     for (const a of S.stalls) if (a.lvl === 2) { const b = S.stalls.find(x => x !== a && x.id === a.id && x.lvl === 2); if (b) { a.lvl = 3; S.stalls = S.stalls.filter(x => x !== b); did = true; break; } }
-    if (!did) did = spendUp();   // 货买完了:钱花在老字号和秘诀升级上
+    if (!did && ref < 4 && S.money >= L.refCost() * 5) { L.refresh(false); ref++; did = true; }   // 先换几次货找想要的摊位
+    if (!did) did = spendUp();   // 货买完了:钱花在老字号、秘诀升级和夜市建设上
     if (!did) { if (S.money >= L.refCost() * 5 && ref < 12) { L.refresh(false); ref++; } else break; }
   }
   if (SMART) arrange();
