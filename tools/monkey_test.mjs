@@ -69,7 +69,7 @@ function check(step) {
   }
   if (G.N && !(G.N.income >= 0)) fail('当晚营业额不对:' + G.N.income);
   if (!Number.isFinite(ui.money) || !Number.isFinite(ui.inc)) fail('界面上的数字不对');
-  if (ui.modal && !ui.modal.buttons.length && ui.modal.timer == null) fail('弹窗没有任何按钮,会卡死:' + ui.modal.title);
+  if (ui.modal && !ui.modal.buttons.length && !(ui.modal.perks || []).length && ui.modal.timer == null) fail('弹窗没有任何按钮,会卡死:' + ui.modal.title);
   for (const h of ui.hits) if (!h.at && !(h.x + h.w >= 0 && h.x <= 375 && h.y + h.h >= 0 && h.y <= H)) fail('有按钮画到了屏幕外:' + JSON.stringify({ x: h.x, y: h.y, w: h.w, h: h.h }));
   if (ui.modal) seen.modals.add(ui.modal.title.replace(/[¥\d]+/g, '#'));
   if (S.arena) { if (S.daily) seen.daily++; else seen.arena++; }
@@ -103,7 +103,7 @@ function play() {
   if (!opts.length) { if (Math.random() < .5) L.refresh(false); return; }
   const pickd = opts[rnd(opts.length)], d = L.DEF[pickd.o.id], cols = d.sup ? [0, 3] : [1, 2]; g.tapCard(pickd.i);
   const same = S.stalls.find(s => s.id === pickd.o.id && s.lvl === 1); if (same) return g.tapPlot(same.c, same.r);
-  for (let rr = 0; rr < L.ROWS; rr++) for (const c of cols) { if (!S.unlocked.has(c + ',' + rr) && L.canUnlock(c, rr)) g.tapPlot(c, rr); if (S.unlocked.has(c + ',' + rr) && !L.stallAt(c, rr)) return g.tapPlot(c, rr); }
+  for (let rr = 0; rr < L.ROWS; rr++) for (const c of cols) { if (!S.unlocked.has(c + ',' + rr) && L.canUnlock(c, rr)) { g.tapPlot(c, rr); g.tapPlot(c, rr); } if (S.unlocked.has(c + ',' + rr) && !L.stallAt(c, rr)) return g.tapPlot(c, rr); }
   ui.sel = null;
 }
 try {
