@@ -367,21 +367,21 @@ function drawBanner(big, small, t, life, col = RED) {
   ctx.restore();
 }
 // ---------- 吆喝:夜里点靠街的售卖摊,几秒内生意更好。每波只有几次,挑口渴的、土豪、一大群人走过来的时候用 ----------
-const SHOUT_TIP = `点靠街的摊位吆喝:${L.SHOUT_T} 秒内吸引力翻倍、多收三成`;
+const SHOUT_TIP = `点靠街的摊位吆喝:接下来 ${L.SHOUT_N} 单售价翻倍(最多管 ${L.SHOUT_T} 秒)`;
 function shoutAt(s) {
   const r = L.shout(s), p = plot(s.c, s.r);
   if (r === 'ok') { sfx.shout(); s.bounce = 1; burst(s.c, s.r, '255,201,74'); ui.pops.push({ x: p.x + p.w / 2, y: p.y + p.h * .3, t: 0, s: '吆喝!', c: GOLD, big: true }); }
   else if (r === 'none') { sfx.bad(); toast('这一波的吆喝用完了,下一波再来', 1.6); }
   else if (r === 'closed') { sfx.bad(); toast('这个摊位今晚不接客', 1.6); }
 }
-// 正在吆喝的摊位:描一圈闪动的金边,靠街一侧挂一块「吆喝!」小牌,底下一条红线表示还剩多久
+// 正在吆喝的摊位:描一圈闪动的金边,靠街一侧挂一块「吆喝 ×N」小牌(还剩几单),底下一条红线表示还剩多久
 function drawShouts() {
   const N = G.N; if (!N || !N.hot || G.S.phase !== 'night') return;
   for (const k in N.hot) {
     const s = G.S.stalls.find(o => o.uid === +k); if (!s) continue;
     const p = plot(s.c, s.r), left = Math.max(0, N.hot[k] / L.SHOUT_T), bx = s.c === 1 ? p.x + p.w - 46 : p.x + 2, by = p.y - 2;
     A.rr(ctx, p.x + 2, p.y + 2, p.w - 4, p.h - 4, 9); ctx.strokeStyle = `rgba(255,215,90,${.55 + .4 * Math.sin(ui.t * 14)})`; ctx.lineWidth = 2.5; ctx.stroke();
-    plate(bx, by, 44, 19, PAPER, 6, 2); txt('吆喝!', bx + 22, by + 8.5, 11, RED, 'center', true); ctx.fillStyle = RED; ctx.fillRect(bx + 4, by + 15, 36 * left, 2);
+    plate(bx, by, 44, 19, PAPER, 6, 2); txt('吆喝×' + (N.hotN[k] || 0), bx + 22, by + 8.5, 11, RED, 'center', true); ctx.fillStyle = RED; ctx.fillRect(bx + 4, by + 15, 36 * left, 2);
   }
 }
 function drawShow() {
@@ -397,10 +397,11 @@ function onSale(c, s, amt, f) {
   const p = plot(s.c, s.r), d = DEF[s.id]; s.bounce = 1; s.earn = (s.earn || 0) + amt;
   const special = f.thirsty || c.rich || f.last;
   ui.pops.push({ x: p.x + p.w / 2, y: p.y + p.h * .42, t: 0, s: '+¥' + amt, c: f.thirsty ? '#8fdcff' : c.rich ? '#fff0a0' : GOLD, big: special || f.hot });
-  if (f.heat > 0) ui.pops.push({ x: p.x + p.w / 2, y: p.y + p.h * .42 - 15, t: 0, s: '人气 +' + Math.round(f.heat * 10) / 10, c: '#ffb3d9', big: true });
+  if (f.heat > 0) ui.pops.push({ x: p.x + p.w / 2, y: p.y + p.h * .42 - 15, t: 0, s: (f.critic ? '好评!' : '') + '人气 +' + Math.round(f.heat * 10) / 10, c: f.critic ? '#ffe680' : '#ffb3d9', big: true, life: f.critic ? 1.2 : 0 });
   const n = Math.min(4, 1 + Math.floor(amt / 15));
   for (let i = 0; i < n; i++) ui.coins.push({ x0: p.x + p.w / 2, y0: p.y + p.h * .4, t: -i * .05, d: .45 + Math.random() * .2, cx: (Math.random() - .5) * 90 });
-  if (f.thirsty) feed(`口渴连击 ×${f.thirsty} · ${d.n} +¥${amt}`); else if (c.rich) feed(`土豪消费 ×3 · ${d.n} +¥${amt}`);
+  if (f.critic) { feed(`评论家好评!人气 +${L.HEAT.critic}`); sfx.merge(); }
+  else if (f.thirsty) feed(`口渴连击 ×${f.thirsty} · ${d.n} +¥${amt}`); else if (c.rich) feed(`土豪消费 ×3 · ${d.n} +¥${amt}`);
   else if (f.last) feed(`临走再买 · ${d.n} +¥${amt}`); else if (f.hot) feed(`吆喝 · ${d.n} +¥${amt}`); else if (s.id === 'ring') feed('有人玩了套圈,心情大好');
   sfx.coin();
 }
@@ -411,6 +412,7 @@ function updateNight(dt) {
     ui.spawn = ui.gap; const c = L.newCust(N.queue.pop());
     Object.assign(c, { x: l.streetX + l.sw / 2 + (Math.random() - .5) * l.sw * .5, y: l.gridY - 30, dir: 1, next: 0, look: A.pickLook(c.rich, c.kid), seed: Math.random() * 9, shirt: pick(A.SHIRTS), hair: pick(A.HAIRS), skin: pick(A.SKINS), shirt2: pick(A.SHIRTS), hair2: pick(A.HAIRS), look2: A.pickLook(false) });
     ui.cust.push(c);
+    if (c.critic) { feed('美食评论家进场了!等他走到摊前再吆喝'); sfx.shout(); }
   }
   const sp = (l.gridH + 56) / 2.6;
   for (const c of ui.cust) {
@@ -431,13 +433,13 @@ function topEarners() {
 const heatText = o => o.heat.toFixed(1) + (o.xmult > 1 ? ' × ' + o.xmult : '');
 const scoreLine = r => `流水${NB}¥${r.flow} × 人气${NB}${heatText(r)} = 热度${NB}${r.inc}`;
 // 人气的来源明细:「起步 1 · 招牌搭配 +0.4 · 街型 +0.8 · 口渴连击 +0.5……」,带了稀有秘诀再写乘了多少
-const SRC_N = [['base', '起步'], ['perk', '秘诀'], ['combo', '招牌搭配'], ['pat', '街型'], ['mid', '中场'], ['thirst', '口渴连击'], ['maxed', '买满']];
+const SRC_N = [['base', '起步'], ['perk', '秘诀'], ['combo', '招牌搭配'], ['pat', '街型'], ['mid', '中场'], ['thirst', '口渴连击'], ['maxed', '买满'], ['critic', '好评']];
 const srcLine = (src, xmult) => '人气来源:' + SRC_N.filter(([k]) => src[k] > 0).map(([k, n]) => `${n}${NB}${k === 'base' ? '' : '+'}${Math.round(src[k] * 100) / 100}`).join(' · ') + (xmult > 1 ? `;稀有秘诀再 ×${xmult}` : '');
 const patText = p => `${p.n}${p.count > 1 ? NB + '×' + p.count : ''}${NB}+${p.heat}`;
 // 人气从哪来:白天按现在的摆法预览开张时的人气,中场显示当晚已经涨到多少;下面列出所有街型的规则
 function heatModal() {
   const N = G.S.phase === 'break' && G.N, o = L.openPreview(), pats = L.patternSummary(o.pats);
-  const src = N ? Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid }) : o.parts;
+  const src = N ? Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid, critic: N.hCritic }) : o.parts;
   ui.modal = {
     title: '人气从哪来', small: true, lines: [(N ? '今晚到现在,' : '按现在的摆法,开张时') + `人气 ×${heatText(N || o)}`, srcLine(src, (N || o).xmult),
       pats.length ? '成立的街型:' + pats.map(patText).join(' · ') : '还没有凑成街型。下面任何一种都行,可以同时凑好几种',
@@ -550,7 +552,7 @@ function restart() {
 function helpModal() {
   const next = L.UNLOCKS.find(u => prof.cleared < u.at);   // 下一个要解锁的摊位
   ui.modal = {
-    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '热度到目标的 1.5、2、3 倍各得一颗星,每颗星收摊多给一笔钱', `夜里点靠街的摊位「吆喝」:${L.SHOUT_T} 秒内吸引力翻倍、多收三成,每波 ${L.SHOUTS} 次`, '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '同一条秘诀再选一次会升级,最高 3 级(稀有的只有 1 级);白天点顶上的秘诀栏也能花钱升级', '3 级摊位白天点一下,可以花钱升成「老字号」:卖东西的摊售价再高五成,支援摊的加成再强一档', '没达标也有保底进账,输一晚不至于什么都买不起', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息(没达标也有):每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
+    title: '怎么玩', small: true, lines: ['顾客从街口走到街尾,路过靠街的摊位时可能消费', '每晚热度达到目标才算过关,共 10 晚;通关后可以继续无尽模式', '点卡片选货,再点地块摆放;同名同级叠放升级', '里排放支援摊,加成覆盖同侧周围一圈', '顺序很重要:先烤串后奶茶,奶茶翻倍', '热度 = 流水 × 人气。流水是实收的钱;口渴连击、顾客买满、凑成招牌搭配都会涨人气', '热度到目标的 1.5、2、3 倍各得一颗星,每颗星收摊多给一笔钱', `夜里点靠街的摊位「吆喝」:接下来 ${L.SHOUT_N} 单售价翻倍,每波 ${L.SHOUTS} 次`, '第 2 波起常有美食评论家(头顶「评」字):他在正在吆喝的摊上买东西,人气 +0.3', '第 3、6、9、10 晚是大考,规则提前公布,过了必出一个稀有秘诀', '同一条秘诀再选一次会升级,最高 3 级(稀有的只有 1 级);白天点顶上的秘诀栏也能花钱升级', '3 级摊位白天点一下,可以花钱升成「老字号」:卖东西的摊售价再高五成,支援摊的加成再强一档', '没达标也有保底进账,输一晚不至于什么都买不起', '一晚的客人分三波来,每波之间可以调整摊位,每晚 2 次', '没花掉的钱收摊时有利息(没达标也有):每 ¥10 生 ¥1,有上限', '有些摊位紧挨着摆会凑成「招牌搭配」,图鉴里能查', '同一侧连着同品类、对门同品类、品类齐全、同名开连锁、等级步步高,都是「街型」,能叠着涨人气。点顶上的「人气」看明细']
       .concat(!G.S.arena && L.stake() > 1 ? [`本局${L.STAKES[L.stake() - 1].n}:${L.STAKES.slice(1, L.stake()).map(x => x.d).join(';')}`] : [], !G.S.arena && L.ownerOf().k !== 'none' ? [`本局摊主「${L.ownerOf().n}」:${L.ownerOf().d}`] : [], prof.best ? [`历史最佳:撑过 ${prof.best} 晚`] : [], next ? [`再撑过 ${next.at - prof.cleared} 晚,解锁新摊位「${DEF[next.id].n}」`] : [], [`版本 ${P.version}${P.env ? '(' + P.env + ')' : ''}`]),
     buttons: [{ label: '知道了', kind: 'pri', fn: () => { ui.modal = null; } }, { label: `音效:${prof.sound ? '开' : '关'}`, kind: 'sec', fn: () => { prof.sound = !prof.sound; saveProf(); helpModal(); } }]
       .concat(G.S.arena ? [] : [{ label: '重新开始主线', kind: 'sec', fn: restart }])
@@ -729,6 +731,7 @@ function drawScene() {
     const k = l.rh / 68 * (c.kid ? .72 : 1); ctx.save(); ctx.translate(c.x, c.y); ctx.scale(k, k);
     if (c.couple) A.drawPerson(ctx, Object.assign({}, c, { x: 7, y: 0, shirt: c.shirt2, hair: c.hair2, seed: c.seed + 2, look: c.look2, thirsty: 0, happy: false, full: false, balloon: false }), ui.t);   // 情侣:旁边多画一个人,头顶标记只画一份
     A.drawPerson(ctx, Object.assign({}, c, { x: c.couple ? -6 : 0, y: 0 }), ui.t); ctx.restore();
+    if (c.critic) { const by = c.y - l.rh * .62 * (c.kid ? .72 : 1) - 8; A.rr(ctx, c.x - 9, by - 8, 18, 16, 4); ctx.fillStyle = '#ffe680'; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke(); txt('评', c.x, by + .5, 10, INK, 'center', true); }   // 美食评论家:头顶一块「评」字牌
   } ctx.globalAlpha = 1;
   // 横跨街道的灯串
   const cols = ['255,215,106', '255,142,106', '127,214,255', '182,255,138'];

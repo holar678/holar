@@ -9,7 +9,7 @@ export const supK = lvl => SUP_LV[lvl - 1] || 1;   // 第 4 级是「老字号�
 // 通关约七成,每晚热度中位数约为目标的 3~4 倍(第 10 晚约 2.5 倍),还有冲星的空间。第 3、6、9、10 晚是大考,有额外的限制。
 // 同一天又加了第 1 晚保底货、没达标保底进账、老字号和秘诀升级,前中期跟着再收紧了一次(原来是 25, 90, 220, 1200, 5000, 10000, 50000, 85000, 110000, 160000)
 // 同一天第三次:真人试玩 0.9.3 时每晚热度是目标的 4~14 倍。把稀有秘诀改成相加、支援摊高等级递减、小目标和超额奖励改成按流水给以后重新定:
-// 「会摆」的新玩家通关约 46%、累计 30 晚约 33%,每晚中位数约为目标的 1.4~2.2 倍;真人试玩比「会摆」强不少(上次约在它的前一成),应该还有冲星的余地
+// 「会摆」的新玩家通关约 46%、累计 30 晚约 33%(后来加了停水、限流两场大考,约 41% 和 32%),每晚中位数约为目标的 1.4~2.2 倍;真人试玩比「会摆」强不少(上次约在它的前一成),应该还有冲星的余地
 // (上一组是 50, 300, 800, 3500, 11000, 20000, 80000, 140000, 160000, 230000)
 export const TARGET = [60, 450, 1500, 6500, 18000, 32000, 110000, 180000, 160000, 200000];
 const INFL = 1.4; // 物价每晚上涨的倍率,防止后期钱花不完
@@ -86,7 +86,7 @@ export const perkCap = () => PERK_SLOTS - (G.S && !G.S.arena && (G.S.stake || 1)
 
 // 流水、人气、热度:流水是当晚实收的钱,收摊后进口袋;人气是倍数,每晚从 1 起步,下面这些事会让它涨;
 // 热度 = 流水 × 人气(× 稀有秘诀的倍数),每晚的目标考核的是热度。代码里 N.flow 是流水,N.income 是热度
-export const HEAT = { combo: 0.2, thirst: 0.1, maxed: 0.1 };   // 开张时每组招牌搭配 / 每次口渴连击 / 每位买满的顾客
+export const HEAT = { combo: 0.2, thirst: 0.1, maxed: 0.1, critic: 0.3 };   // 开张时每组招牌搭配 / 每次口渴连击 / 每位买满的顾客 / 美食评论家在正在吆喝的摊上买了一单
 
 // 成就:达成一次就永久记在档案里,奖励 r 点解锁进度。t(x) 判断是否达成,x 是界面层在结算时拍的一张快照:
 // inc 当晚热度 / thirst 当晚口渴连击次数 / lvl3 场上有没有 3 级摊 / combos 场上生效的搭配数 / found 发现过的搭配种数
@@ -161,7 +161,7 @@ export function goalInfo() {
   return { text: def.d(g.n), cur: Math.min(cur, g.n), n: g.n, reward: goalReward(G.N ? G.N.flow : 0), done: cur >= g.n };
 }
 // 当晚的统计:小目标用的几项,加上流水、人气、稀有秘诀的倍数;hThirst / hMaxed / hMid 是口渴连击、买满、中场补上的人气各涨了多少(结算时列明细)
-const counters = () => ({ thirst: 0, maxed: 0, earn: {}, catSet: {}, flow: 0, heat: 1, xmult: 1, hThirst: 0, hMaxed: 0, hMid: 0, kinds: 0 });
+const counters = () => ({ thirst: 0, maxed: 0, critic: 0, earn: {}, catSet: {}, flow: 0, heat: 1, xmult: 1, hThirst: 0, hMaxed: 0, hMid: 0, hCritic: 0, kinds: 0 });
 
 // 夜市事件:主线从第 2 晚起,每晚有六成机会碰上一件事,改变当晚的规则。事件公开显示在白天,玩家可以先挪摊位再开张。
 // cust: 客流倍数;cap: 每人消费次数的增减;其余效果在 statOf 里按 k 处理
@@ -275,6 +275,9 @@ export const BOSSES = [
   { k: 'haggle', n: '砍价团', d: '所有售价打七折' },
   { k: 'quiet', n: '冷清夜', d: '客流少三分之一', cust: .67 },
   { k: 'mono', n: '尝鲜团', d: '每人同一品类只买一次' },
+  // 下面两场专门为难最常见的「烤串 → 奶茶 + 冰柜、灯牌」:饮品不值钱了,灯牌堆出来的吸引力也到不了顶
+  { k: 'drought', n: '停水', d: '饮品售价减半' },
+  { k: 'crowd', n: '限流', d: '每个摊位吸引力最高 60%' },
 ];
 export const isBossNight = n => n % 3 === 0 || n === MAXN;
 const bossIdx = n => n === MAXN ? 3 : n < MAXN ? n / 3 - 1 : Math.floor(n / 3);   // 这是本局第几场大考(从 0 数)
@@ -423,6 +426,8 @@ export function canUnlock(c, r) {
 }
 // 支援范围:同侧周围一圈(含斜向)
 export const inRange = (s, c, r) => (s.c < 2) === (c < 2) && Math.abs(c - s.c) <= 1 && Math.abs(r - s.r) <= 1 && !(c === s.c && r === s.r);
+// 吸引力上限:平时 95%,大考「限流」60%
+export const aCap = () => G.S.event && G.S.event.k === 'crowd' ? .6 : .95;
 export const around = s => G.S.stalls.filter(o => o !== s && inRange(s, o.c, o.r));
 export function statOf(s) {
   const d = DEF[s.id]; if (d.sup) return null;
@@ -453,10 +458,11 @@ export function statOf(s) {
     if (ev.k === 'late') pm *= s.r >= ROWS / 2 ? 1.4 : .8;
   }
   if (s.lvl >= 3 && s.id === 'candy') aMul += .2;   // 3 级糖葫芦的招牌技
-  const a = Math.max(.05, Math.min(.95, d.a * aMul));
+  const a = Math.max(.05, Math.min(aCap(), d.a * aMul));
   if (a >= .6) pm *= 1 + 0.25 * perk('queue');
   if (bk === 'judge' && d.cat !== 'food' && d.cat !== 'drink') pm *= .5;   // 大考「美食评委」
   if (bk === 'haggle') pm *= .7;                                          // 大考「砍价团」
+  if (bk === 'drought' && d.cat === 'drink') pm *= .5;                     // 大考「停水」
   return { a, price: d.p * pm, pm, flat, closed: bk === 'patrol' && s.r === 0 };   // closed: 大考「城管巡查」,第一排今晚不能营业
 }
 
@@ -524,20 +530,22 @@ function rollWave(prev) { const pool = WAVE_TYPES.filter(t => t.k !== 'normal' &
 // 把一晚的客人切成几波:返回 [{ type, q }]
 function makeWaves(n) {
   const q = makeQueue(custCount(), 2 * perk('rich')), per = Math.ceil(q.length / n), out = []; let prev = 'normal';
-  for (let i = 0; i < n; i++) { const part = q.slice(i * per, (i + 1) * per); if (!part.length) continue; const type = i ? rollWave(prev) : 'normal'; prev = type; if (type === 'vip') part.push(true, true); out.push({ type, q: part }); }
+  for (let i = 0; i < n; i++) { const part = q.slice(i * per, (i + 1) * per); if (!part.length) continue; const type = i ? rollWave(prev) : 'normal'; prev = type; if (type === 'vip') part.push(true, true); if (i && !G.S.arena && Math.random() < CRITIC_CHANCE) { const j = part.indexOf(false); if (j >= 0) part[j] = 'critic'; } out.push({ type, q: part }); }
   return out.length ? out : [{ type: 'normal', q: [] }];
 }
-function loadWave() { const N = G.N, w = N.waves[N.wave]; N.waveType = w.type; N.queue = w.q.slice().sort(() => Math.random() - 0.5); N.shouts = SHOUTS; N.hot = {}; }
-// 吆喝:夜里点一个靠街的售卖摊,SHOUT_T 秒内(游戏时间,加速时跟着快)吸引力 ×SHOUT_A、每单 ×SHOUT_P。每波 SHOUTS 次,不攒到下一波,中场不能用。
-// N.hot 记着每个摊位还剩几秒,由界面层每帧调 coolShouts 扣时间。自动试玩(quickSim)不吆喝,所以定目标时没算它
-export const SHOUTS = 2, SHOUT_T = 3, SHOUT_A = 2, SHOUT_P = 1.3;
+function loadWave() { const N = G.N, w = N.waves[N.wave]; N.waveType = w.type; N.queue = w.q.slice().sort(() => Math.random() - 0.5); N.shouts = SHOUTS; N.hot = {}; N.hotN = {}; }
+// 吆喝:夜里点一个靠街的售卖摊,这个摊接下来的 SHOUT_N 单售价 ×SHOUT_P,路过的人也更愿意停下(吸引力至少 SHOUT_A);最多管 SHOUT_T 秒(游戏时间)。
+// 每波 SHOUTS 次,不攒到下一波,中场不能用。挑口渴的人、土豪、美食评论家走到摊前的时候喊最划算。
+// 原来是「3 秒内吸引力翻倍、多收三成」:吸引力常常已经顶到上限,翻倍白翻,试玩时吆喝只占流水不到一成。
+// N.hot 记着每个摊位还剩几秒,N.hotN 记着还剩几单,由界面层每帧调 coolShouts 扣时间。自动试玩(quickSim)不吆喝,所以定目标时没算它
+export const SHOUTS = 2, SHOUT_T = 6, SHOUT_N = 3, SHOUT_A = .8, SHOUT_P = 2;
 // 返回 'ok' | 'none'(这一波用完了)| 'already'(正在吆喝)| 'closed'(这个摊位今晚不接客)| 'no'(不是夜里)
 export function shout(s) {
   const N = G.N; if (G.S.phase !== 'night' || !N || !N.hot) return 'no';
   if (!N.stats.has(s.uid)) return 'closed'; if (N.hot[s.uid] > 0) return 'already'; if (N.shouts <= 0) return 'none';
-  N.shouts--; N.hot[s.uid] = SHOUT_T; return 'ok';
+  N.shouts--; N.hot[s.uid] = SHOUT_T; N.hotN[s.uid] = SHOUT_N; return 'ok';
 }
-export function coolShouts(dt) { const N = G.N; if (!N || !N.hot) return; for (const k in N.hot) { N.hot[k] -= dt; if (N.hot[k] <= 0) delete N.hot[k]; } }
+export function coolShouts(dt) { const N = G.N; if (!N || !N.hot) return; for (const k in N.hot) { N.hot[k] -= dt; if (N.hot[k] <= 0) { delete N.hot[k]; delete N.hotN[k]; } } }
 // waves: 分几波(新手引导里传 1,不停顿)
 export function startNight(waves = WAVES) {
   G.S.phase = 'night';
@@ -559,12 +567,17 @@ export function nextWave() {
   G.S.phase = 'night'; loadWave();
 }
 export function encore() { G.N.encore = true; G.N.waveType = 'normal'; G.N.queue = makeQueue(6, 0); G.S.phase = 'night'; }
+// 美食评论家:第 2 波起每波有 CRITIC_CHANCE 的机会由一位普通客人换成他(客流不变)(头顶有「评」字牌)。他在正在吆喝的摊上买一单,人气 +HEAT.critic(每人最多给两次);
+// 不吆喝就和普通客人一样。擂台里没有,自动试玩不吆喝,所以定目标时也没算他
+export const CRITIC_CHANCE = 0.6;
 // thirsty:下一杯饮品的倍数,0 是不渴。kid(小孩)、couple(情侣)、foodie(夜宵客)由当晚的事件或这一波的类型带来,土豪不会是这几种。
 // wave: 这位顾客属于哪种波次;不传就用当晚正在进行的那一波
+// rich:true 是土豪,'critic' 是美食评论家(队列里就这么记)
 export const newCust = (rich, wave) => {
+  const critic = rich === 'critic'; rich = rich === true;
   const ev = G.S.event && G.S.event.k, wv = wave || (G.N && G.N.waveType) || 'normal', r = Math.random();
   return { buys: 0, thirsty: ev === 'worker' || wv === 'thirsty' ? 2 : 0, full: false, happy: false, balloon: false, cats: [], rich,
-    kid: !rich && ((ev === 'kids' && r < .4) || (wv === 'kids' && r < .5)), couple: !rich && ((ev === 'couple' && r < .5) || (wv === 'couple' && r < .5)), foodie: !rich && wv === 'foodie' };
+    kid: !rich && !critic && ((ev === 'kids' && r < .4) || (wv === 'kids' && r < .5)), couple: !rich && !critic && ((ev === 'couple' && r < .5) || (wv === 'couple' && r < .5)), foodie: !rich && !critic && wv === 'foodie', critic, praise: 0 };
 };
 const capOf = c => c.couple ? Math.min(2, capN()) : capN();   // 这位顾客最多买几次
 function trySell(c, s, onSale) {
@@ -575,14 +588,14 @@ function trySell(c, s, onSale) {
   if (G.S.event && G.S.event.k === 'mono' && c.cats.indexOf(d.cat) >= 0) return;   // 大考「尝鲜团」
   if (!free && c.buys >= cap) return; if (d.cat === 'food' && c.full) return; if (s.id === 'ring' && c.happy) return; if (s.id === 'balloon' && c.balloon) return;
   const hot = !!(N.hot && N.hot[s.uid] > 0);   // 正在吆喝
-  let a = st.a; if (s.id === 'phone' && c.happy) a = top ? .95 : a * 2; if (c.balloon) a *= c.balloon; if (c.kid) a *= 2; if (hot) a *= SHOUT_A; a = Math.min(.95, a);
+  let a = st.a; if (s.id === 'phone' && c.happy) a = top ? .95 : a * 2; if (c.balloon) a *= c.balloon; if (c.kid) a *= 2; if (hot) a = Math.max(a, SHOUT_A); a = Math.min(aCap(), a);
   if (Math.random() > a) return;
   const f = { thirsty: 0, last: false };
   let amt = st.price + (s.id === 'ice' ? (top ? 4 : 3) * c.buys * st.pm : 0);
   if (d.cat === 'drink' && c.thirsty) { f.thirsty = c.thirsty + (top && s.id === 'lemon' ? 1 : 0); amt *= f.thirsty; c.thirsty = 0; }
   else if (top && s.id === 'tea') amt *= 1.2;
   if (c.happy) amt *= c.happy;
-  if (hot) { amt *= SHOUT_P; f.hot = true; }
+  if (hot) { amt *= SHOUT_P; f.hot = true; if (--N.hotN[s.uid] <= 0) { delete N.hot[s.uid]; delete N.hotN[s.uid]; } }   // 吆喝管的几单用完了就停
   if (!free && c.buys + 1 >= cap && perk('last')) { amt *= 1 + perk('last'); f.last = true; }
   amt += st.flat; if (!free && c.buys === 0) amt += 5 * perk('first');
   if (c.cats.indexOf(d.cat) < 0) { amt *= 1 + 0.2 * perk('set'); c.cats.push(d.cat); }
@@ -595,6 +608,7 @@ function trySell(c, s, onSale) {
   let dh = 0;   // 这一单让人气涨了多少
   if (!free) { c.buys++; if (c.buys === cap) { N.maxed++; const v = HEAT.maxed + 0.1 * perk('word'); dh += v; N.hMaxed = Math.round((N.hMaxed + v) * 100) / 100; } }
   if (f.thirsty) { N.thirst++; const v = HEAT.thirst + 0.1 * perk('cool'); dh += v; N.hThirst = Math.round((N.hThirst + v) * 100) / 100; }
+  if (c.critic && hot && c.praise < 2) { c.praise++; N.critic++; f.critic = true; dh += HEAT.critic; N.hCritic = Math.round((N.hCritic + HEAT.critic) * 100) / 100; }   // 美食评论家的好评
   N.catSet[d.cat] = 1; N.earn[s.uid] = (N.earn[s.uid] || 0) + amt;
   N.flow += amt; N.heat = Math.round((N.heat + dh) * 100) / 100; f.heat = dh;
   N.income = Math.round(N.flow * N.heat * N.xmult);   // 热度 = 流水 × 人气 × 稀有秘诀的倍数
@@ -613,7 +627,7 @@ export const overBonus = (stars, flow) => stars * Math.max(Math.round(5 * infl()
 export const wantsBack = c => !c.ret && c.buys < capOf(c) && Math.random() < 0.25 * perk('back');
 export function finishNight() {
   const S = G.S, T = target(), inc = G.N.income; S.phase = 'settle';
-  const N = G.N, src = Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid });   // 人气的来源明细
+  const N = G.N, src = Object.assign({}, N.parts, { thirst: N.hThirst, maxed: N.hMaxed, mid: N.hMid, critic: N.hCritic });   // 人气的来源明细
   const ok = S.arena ? inc > T : inc >= T, stars = ok ? overStars(inc, T) : 0;
   return { ok, inc, T, stars, over: overBonus(stars, G.N.flow), flow: G.N.flow, heat: G.N.heat, xmult: G.N.xmult, src, tip: Math.round(G.N.flow * 0.1 * perk('tip')), interest: interestOf(), goal: (gi => gi && gi.done ? gi.reward : 0)(goalInfo()), encore: G.N.encore };
 }
