@@ -4,7 +4,7 @@ const isWx = typeof wx !== 'undefined' && typeof wx.createCanvas === 'function';
 // 留空时没有真广告:点「看广告」的按钮会直接发奖励,并提示广告位未配置,只适合测试
 const AD_UNIT_ID = '';
 // 版本号:每次用开发者工具上传前先改这里,上传时填同一个号。玩家在「怎么玩」窗口最下面能看到,用来确认体验版有没有更新
-const VERSION = '0.9.3';
+const VERSION = '0.9.4';
 // 当前跑的是哪个版本:开发版(开发者工具 / 预览)、体验版、正式版;浏览器里是调试
 function envName() {
   if (!isWx) return '浏览器调试';
